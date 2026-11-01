@@ -1,0 +1,18 @@
+# Local Claude Code state
+.claude/
+.claude.json
+.mcp.json
+CLAUDE.md
+CLAUDE.local.md
+
+# Environment
+.env*
+!.env.example
+
+# Node / TypeScript
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Engine-generated mod types (rewritten on each load)
+.claude-plugin/types/
