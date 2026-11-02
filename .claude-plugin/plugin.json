@@ -1,0 +1,68 @@
+{
+	"name": "jev-prompt",
+	"version": "0.1.0",
+	"description": "Grades the prompt you are typing against a prompting rubric, live, with Jev through OpenRouter.",
+	"types": "./types/index.d.ts",
+	"userConfig": {
+		"openrouterApiKey": {
+			"type": "string",
+			"title": "OpenRouter API key",
+			"description": "Key used for Jev decisions calls. Kept in secure storage.",
+			"sensitive": true
+		},
+		"model": {
+			"type": "string",
+			"title": "Jev model",
+			"description": "Pinned exact: weights are calibrated per Jev version.",
+			"default": "typesafe/jev-1.14"
+		},
+		"idleMs": {
+			"type": "number",
+			"title": "Idle before grading (ms)",
+			"description": "How long typing must pause before a grade.",
+			"default": 10000
+		},
+		"requireEndPunctuation": {
+			"type": "boolean",
+			"title": "Require end punctuation",
+			"description": "Grade only drafts ending in . ? or ! (still after the idle wait).",
+			"default": false
+		},
+		"minChars": {
+			"type": "number",
+			"title": "Minimum characters",
+			"description": "Shorter drafts are not graded.",
+			"default": 10
+		},
+		"monthlyBudgetUsd": {
+			"type": "number",
+			"title": "Monthly budget (USD)",
+			"description": "Hard cap per calendar month, shared by all sessions.",
+			"default": 1.65
+		},
+		"dailyBudgetUsd": {
+			"type": "number",
+			"title": "Daily budget (USD)",
+			"description": "Hard cap per local day, shared by all sessions.",
+			"default": 0.1
+		},
+		"priceUsdPerMTok": {
+			"type": "number",
+			"title": "Price per million input tokens (USD)",
+			"description": "Used only for the pre-call cost estimate.",
+			"default": 0.042
+		},
+		"timeoutMs": {
+			"type": "number",
+			"title": "Request timeout (ms)",
+			"description": "A slower answer shows the band as offline.",
+			"default": 3000
+		},
+		"requireZdr": {
+			"type": "boolean",
+			"title": "Require zero data retention",
+			"description": "Route only to OpenRouter endpoints with zero data retention.",
+			"default": true
+		}
+	}
+}

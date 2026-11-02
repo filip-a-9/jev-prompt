@@ -20,38 +20,38 @@ rewrites a prompt.
 
 ## 2. Decisions taken in the interview
 
-| Topic | Decision |
-| --- | --- |
-| Grader | Jev (TypeSafe's decision model) through OpenRouter, using the author's existing key. Jev gives probability-weighted scores and generates no text. |
-| Trigger | ≥ 10 chars and 10 s idle; a 5 s pause fired mid-thought. Punctuation never shortens the wait. An opt-in setting additionally requires the draft to end in `.` `?` `!`. |
-| Cost | About $10 per half-year at most: hard caps of $1.65 a month and $0.10 a day (section 4.6). |
-| Grade shape | 0–100%, a weighted combination of per-dimension Jev scores (TypeSafe's "composite scoring" pattern). |
-| Methodology | Anthropic prompting guidance, project-aware (CLAUDE.md), task-type aware. |
-| Feedback | Score plus the top gaps in a band above the prompt. No inline marks, no rewrite, no history in v1. |
-| On submit | Never interferes. |
-| Short replies | Context-aware: "yes, do that" after Claude asked a question is a good prompt. |
-| Context sent | Draft, Claude's last reply, your previous prompt, and the project's CLAUDE.md, capped below Jev's 32 KB fast-mode limit. |
-| Secrets | Redacted locally before sending; `/jev off` pauses grading. |
-| Existing tools | None found that grades live while typing. PromptOps, PQS and claude-code-auditor all grade on demand or grade files. |
+| Topic          | Decision                                                                                                                                                               |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Grader         | Jev (TypeSafe's decision model) through OpenRouter, using the author's existing key. Jev gives probability-weighted scores and generates no text.                           |
+| Trigger        | ≥ 10 chars and 10 s idle; a 5 s pause fired mid-thought. Punctuation never shortens the wait. An opt-in setting additionally requires the draft to end in `.` `?` `!`. |
+| Cost           | About $10 per half-year at most: hard caps of $1.65 a month and $0.10 a day (section 4.6).                                                                             |
+| Grade shape    | 0–100%, a weighted combination of per-dimension Jev scores (TypeSafe's "composite scoring" pattern).                                                                   |
+| Methodology    | Anthropic prompting guidance, project-aware (CLAUDE.md), task-type aware.                                                                                              |
+| Feedback       | Score plus the top gaps in a band above the prompt. No inline marks, no rewrite, no history in v1.                                                                     |
+| On submit      | Never interferes.                                                                                                                                                      |
+| Short replies  | Context-aware: "yes, do that" after Claude asked a question is a good prompt.                                                                                          |
+| Context sent   | Draft, Claude's last reply, your previous prompt, and the project's CLAUDE.md, capped below Jev's 32 KB fast-mode limit.                                               |
+| Secrets        | Redacted locally before sending; `/jev off` pauses grading.                                                                                                            |
+| Existing tools | None found that grades live while typing. PromptOps, PQS and claude-code-auditor all grade on demand or grade files.                                                   |
 
 ## 3. Platform facts this design relies on
 
 All verified against the 2.1.316 mod types (`claude-code.d.ts`) and the Jev docs.
 
-| Need | Mechanism |
-| --- | --- |
-| Every keystroke | `on('prompt.edit')`: one event per edit the person makes |
-| Other draft changes | `on('prompt.change')`: history recall, paste, completion, dictation |
-| Idle timer | `$.clock.after(ms, fn)` returns a cancellable timer |
-| Read the draft | `$.prompt.read()` returns `{ text, cursor }` |
-| Clear on send | `on('prompt.submit')`, passed straight through with `next(e)` |
-| Band above the prompt | `on('ui.render', { component: 'AbovePrompt' })`, with values in `atom`s so a write redraws it |
-| Conversation context | `$.session.messages()` returns `{ role, text, toolUses }[]` |
-| CLAUDE.md | `$.fs.read(path)`, relative to the session cwd, 4 MiB max |
-| HTTP | `$.http.fetch(url, init)` (mods have no Node and no global fetch) |
-| API key | manifest `userConfig` field marked sensitive, kept in secure storage, arrives in `register(on, options)` |
-| Spend across sessions | `$.store` (persists across sessions) |
-| Command | `$.command.register` in `session.start`, answered by `command.run` |
+| Need                  | Mechanism                                                                                                |
+| --------------------- | -------------------------------------------------------------------------------------------------------- |
+| Every keystroke       | `on('prompt.edit')`: one event per edit the person makes                                                 |
+| Other draft changes   | `on('prompt.change')`: history recall, paste, completion, dictation                                      |
+| Idle timer            | `$.clock.after(ms, fn)` returns a cancellable timer                                                      |
+| Read the draft        | `$.prompt.read()` returns `{ text, cursor }`                                                             |
+| Clear on send         | `on('prompt.submit')`, passed straight through with `next(e)`                                            |
+| Band above the prompt | `on('ui.render', { component: 'AbovePrompt' })`, with values in `atom`s so a write redraws it            |
+| Conversation context  | `$.session.messages()` returns `{ role, text, toolUses }[]`                                              |
+| CLAUDE.md             | `$.fs.read(path)`, relative to the session cwd, 4 MiB max                                                |
+| HTTP                  | `$.http.fetch(url, init)` (mods have no Node and no global fetch)                                        |
+| API key               | manifest `userConfig` field marked sensitive, kept in secure storage, arrives in `register(on, options)` |
+| Spend across sessions | `$.store` (persists across sessions)                                                                     |
+| Command               | `$.command.register` in `session.start`, answered by `command.run`                                       |
 
 Jev via OpenRouter:
 
@@ -89,7 +89,7 @@ Jev via OpenRouter:
                                          │
                                          ▼
                         Budget gate ──► Jev client ──► OpenRouter
-                        (hard cap)      (timeout, abort)
+                        (hard cap)      (timeout, 1 flight)
                                          │ answers
                                          ▼
                                   Grader (weights, gaps)
@@ -102,7 +102,8 @@ Jev via OpenRouter:
 
 - `prompt.edit` and `prompt.change` hooks run on the typing path. They only
   cancel the pending timer, start a new `$.clock.after(idleMs)`, mark the band
-  stale, and return `next(e)`. No awaits and no I/O.
+  stale, and return `next(e)`. No I/O. `prompt.edit` awaits `next(e)` only
+  to learn the text the edit produced.
 - `idleMs` is 10000, so a pause to think mid-sentence does not trigger a
   grade. Punctuation never shortens it.
 - Opt-in `requireEndPunctuation` (default off): when the timer fires, also
@@ -111,11 +112,14 @@ Jev via OpenRouter:
   not the cursor. A `.` mid-draft (`file.ts`, `e.g.`) has no effect.
 - An edit that leaves the text unchanged (a pure cursor move) does not restart
   the timer.
-- When the timer fires, it aborts any request still in flight (AbortController)
-  and starts a grade for the current box text.
+- When the timer fires, it starts a grade for the current box text. `$.http.fetch`
+  cannot be aborted, so at most one request runs at a time: a grade asked for
+  while one runs waits, and only the newest waiting one runs next. The timeout
+  races the response against `$.clock.after(timeoutMs)`; a response that lands
+  late is still counted against the budget.
 - When the result arrives, it is applied only if `$.prompt.read().text` still
   equals the text that was graded. Otherwise it is dropped.
-- `prompt.submit` cancels the timer, aborts any request, clears the band, and
+- `prompt.submit` cancels the timer, drops any waiting grade, clears the band, and
   passes the event on unchanged.
 
 ### 4.2 Skip rules (no API call)
@@ -133,10 +137,10 @@ A JSON object, so that questions can name its fields:
 
 ```json
 {
-  "draft": "<the prompt being written>",
-  "previous_user_prompt": "<last user message with text, tool results excluded>",
-  "last_assistant_reply": "<tail of Claude's last text reply>",
-  "project_instructions": "<CLAUDE.md, CLAUDE.local.md, .claude/CLAUDE.md, concatenated>"
+	"draft": "<the prompt being written>",
+	"previous_user_prompt": "<last user message with text, tool results excluded>",
+	"last_assistant_reply": "<tail of Claude's last text reply>",
+	"project_instructions": "<CLAUDE.md, CLAUDE.local.md, .claude/CLAUDE.md, concatenated>"
 }
 ```
 
@@ -157,8 +161,10 @@ Runs over the whole state, CLAUDE.md included, just before the call. Each
 match is replaced with `[REDACTED:<kind>]`:
 
 - provider keys: `sk-…`, `sk-or-…`, `sk-ant-…`, `ghp_…`, `github_pat_…`,
-  `AKIA[0-9A-Z]{16}`, `xox[abpr]-…`
-- PEM blocks: `-----BEGIN … PRIVATE KEY-----` up to the matching END line
+  `AKIA[0-9A-Z]{16}`, `xox[abpr]-…`; `sk-` only at the start of a word, so
+  `risk-assessment-…` is left alone
+- PEM blocks: `-----BEGIN … PRIVATE KEY-----` up to the matching END line,
+  or to the end of the field when truncation cut the END line off
 - JWTs: `eyJ…\.eyJ…\.…`
 - assignments: `(password|passwd|secret|token|api[_-]?key)\s*[:=]\s*\S+`
 - connection strings with credentials: `\w+://[^\s:@]+:[^\s@]+@`
@@ -182,18 +188,18 @@ counts as present.
 
 Questions, all in one request:
 
-| Key | Type | Measures | Levels (low → high, each described as a situation, per Jev guidance) |
-| --- | --- | --- | --- |
-| `task_type` | choice | what kind of request | `bug_fix`, `feature`, `refactor`, `question`, `review`, `ops` (shell, git, deploy), `follow_up` (answers or steers Claude's last reply), `other` |
-| `goal` | score | the desired outcome is unambiguous | 4 levels: no recognisable goal → goal guessable → goal stated but open to two readings → one clear outcome |
-| `context` | score | Claude has what it needs to start (where, what, which) | 4 levels: would have to ask or search blindly → … → names files, symbols or the error, or the context already gives them |
-| `verification` | score | how done or correct will be judged | 3 levels: none → implied → explicit (a test, expected output, an acceptance check) |
-| `constraints` | score | scope and boundaries stated where they matter | 3 levels: unbounded where it matters → partly → limits and non-goals clear |
-| `evidence` | score | for problems: what was observed versus expected | 3 levels: none → vague ("it's broken") → concrete (error text, repro, observed vs expected) |
-| `focus` | score | one coherent request | 3 levels: several unrelated asks → related but sprawling → one focused request |
-| `rationale` | score | why, where it changes the answer | 3 levels: none where it matters → hinted → the reason is given |
-| `output` | score | the shape of the answer or deliverable | 3 levels: unspecified where it matters → partly → clear (length, format, file, plan vs code) |
-| `reply_fit` | score | a follow-up unambiguously answers or steers the last reply | 3 levels: unclear what it refers to → mostly clear → unambiguous |
+| Key            | Type   | Measures                                                   | Levels (low → high, each described as a situation, per Jev guidance)                                                                             |
+| -------------- | ------ | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `task_type`    | choice | what kind of request                                       | `bug_fix`, `feature`, `refactor`, `question`, `review`, `ops` (shell, git, deploy), `follow_up` (answers or steers Claude's last reply), `other` |
+| `goal`         | score  | the desired outcome is unambiguous                         | 4 levels: no recognisable goal → goal guessable → goal stated but open to two readings → one clear outcome                                       |
+| `context`      | score  | Claude has what it needs to start (where, what, which)     | 4 levels: would have to ask or search blindly → … → names files, symbols or the error, or the context already gives them                         |
+| `verification` | score  | how done or correct will be judged                         | 3 levels: none → implied → explicit (a test, expected output, an acceptance check)                                                               |
+| `constraints`  | score  | scope and boundaries stated where they matter              | 3 levels: unbounded where it matters → partly → limits and non-goals clear                                                                       |
+| `evidence`     | score  | for problems: what was observed versus expected            | 3 levels: none → vague ("it's broken") → concrete (error text, repro, observed vs expected)                                                      |
+| `focus`        | score  | one coherent request                                       | 3 levels: several unrelated asks → related but sprawling → one focused request                                                                   |
+| `rationale`    | score  | why, where it changes the answer                           | 3 levels: none where it matters → hinted → the reason is given                                                                                   |
+| `output`       | score  | the shape of the answer or deliverable                     | 3 levels: unspecified where it matters → partly → clear (length, format, file, plan vs code)                                                     |
+| `reply_fit`    | score  | a follow-up unambiguously answers or steers the last reply | 3 levels: unclear what it refers to → mostly clear → unambiguous                                                                                 |
 
 Level wording follows Jev's Score guidance: describe situations, not degrees;
 one dimension per question; a structured `{ what, examples }` per level where
@@ -218,6 +224,9 @@ calibration shows neighbouring levels getting split.
 - If grading turns out to need more context than 16 KB allows, raising the
   state budget is the lever, and the caps keep the cost bounded regardless.
 - At most one request in flight. A 429 response pauses grading for 30 s.
+- A grade that waited behind another call checks again before it is sent: no
+  call once a 401/403 or 429 has stopped or paused grading, or when the draft
+  has changed since it was queued.
 
 ### 4.7 Grader (pure functions)
 
@@ -237,16 +246,16 @@ calibration shows neighbouring levels getting split.
 
 Starting weights (to be calibrated, section 6):
 
-| type | goal | context | verification | constraints | evidence | focus | rationale | output | reply_fit |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| bug_fix | .20 | .20 | .15 | .05 | .25 | .10 | .05 | 0 | 0 |
-| feature | .25 | .20 | .15 | .15 | 0 | .10 | .10 | .05 | 0 |
-| refactor | .20 | .20 | .20 | .20 | 0 | .10 | .10 | 0 | 0 |
-| question | .35 | .25 | 0 | .05 | 0 | .15 | .05 | .15 | 0 |
-| review | .25 | .25 | .10 | .15 | 0 | .10 | .05 | .10 | 0 |
-| ops | .30 | .25 | .15 | .20 | 0 | .10 | 0 | 0 | 0 |
-| follow_up | .15 | .10 | 0 | 0 | 0 | .10 | 0 | 0 | .65 |
-| other | .30 | .25 | .10 | .10 | 0 | .15 | .05 | .05 | 0 |
+| type      | goal | context | verification | constraints | evidence | focus | rationale | output | reply_fit |
+| --------- | ---- | ------- | ------------ | ----------- | -------- | ----- | --------- | ------ | --------- |
+| bug_fix   | .20  | .20     | .15          | .05         | .25      | .10   | .05       | 0      | 0         |
+| feature   | .25  | .20     | .15          | .15         | 0        | .10   | .10       | .05    | 0         |
+| refactor  | .20  | .20     | .20          | .20         | 0        | .10   | .10       | 0      | 0         |
+| question  | .35  | .25     | 0            | .05         | 0        | .15   | .05       | .15    | 0         |
+| review    | .25  | .25     | .10          | .15         | 0        | .10   | .05       | .10    | 0         |
+| ops       | .30  | .25     | .15          | .20         | 0        | .10   | 0         | 0      | 0         |
+| follow_up | .15  | .10     | 0            | 0           | 0        | .10   | 0         | 0      | .65       |
+| other     | .30  | .25     | .10          | .10         | 0        | .15   | .05       | .05    | 0         |
 
 ### 4.8 Band
 
@@ -270,30 +279,32 @@ Starting weights (to be calibrated, section 6):
 
 ### 4.10 Configuration (`userConfig`, read once in `src/config.ts`)
 
-| Field | Type | Default | Note |
-| --- | --- | --- | --- |
-| `openrouterApiKey` | string, sensitive | none | secure storage, never in settings.json |
-| `model` | string | `typesafe/jev-1.14` | pinned exact: scores shift between Jev releases, so weights are calibrated per version |
-| `idleMs` | number | 10000 | pause mid-sentence |
-| `requireEndPunctuation` | boolean | false | when on, grade only drafts ending in `.` `?` `!` (still after `idleMs`) |
-| `minChars` | number | 10 | |
-| `monthlyBudgetUsd` | number | 1.65 | hard cap, about $10 per half-year (section 4.6) |
-| `dailyBudgetUsd` | number | 0.10 | hard cap, section 4.6 |
-| `priceUsdPerMTok` | number | 0.042 | used for the pre-call estimate only |
-| `timeoutMs` | number | 3000 | |
+| Field                   | Type              | Default             | Note                                                                                   |
+| ----------------------- | ----------------- | ------------------- | -------------------------------------------------------------------------------------- |
+| `openrouterApiKey`      | string, sensitive | none                | secure storage, never in settings.json                                                 |
+| `model`                 | string            | `typesafe/jev-1.14` | pinned exact: scores shift between Jev releases, so weights are calibrated per version |
+| `idleMs`                | number            | 10000               | pause mid-sentence                                                                     |
+| `requireEndPunctuation` | boolean           | false               | when on, grade only drafts ending in `.` `?` `!` (still after `idleMs`)                |
+| `minChars`              | number            | 10                  |                                                                                        |
+| `monthlyBudgetUsd`      | number            | 1.65                | hard cap, about $10 per half-year (section 4.6)                                        |
+| `dailyBudgetUsd`        | number            | 0.10                | hard cap, section 4.6                                                                  |
+| `priceUsdPerMTok`       | number            | 0.042               | used for the pre-call estimate only                                                    |
+| `timeoutMs`             | number            | 3000                |                                                                                        |
+| `requireZdr`            | boolean           | true                | send `provider: { zdr: true }`: only zero-data-retention endpoints may serve the call  |
 
 `src/config.ts` validates these into one typed object. No other module reads
 `options`.
 
 ### 4.11 Failure handling
 
-| Case | Band | Then |
-| --- | --- | --- |
-| network error or timeout | `jev: offline` (gray) | retry on the next idle |
-| 401/403 | `jev: key rejected` | stop until the config changes |
-| 429 | `jev: rate limited` | pause 30 s |
-| 4xx/5xx with a different shape, or unexpected answer fields (alpha drift) | `jev: unexpected response` | full body to the debug log via `$.ui.log` |
-| a hook throws | engine skips the hook and logs it | typing is never affected |
+| Case                                                                      | Band                              | Then                                      |
+| ------------------------------------------------------------------------- | --------------------------------- | ----------------------------------------- |
+| network error or timeout                                                  | `jev: offline` (gray)             | retry on the next idle                    |
+| 401/403                                                                   | `jev: key rejected`               | stop until the config changes             |
+| 429                                                                       | `jev: rate limited`               | pause 30 s                                |
+| no endpoint meets the ZDR requirement (`requireZdr` on)                   | `jev: no zero-retention provider` | stop until the config changes             |
+| 4xx/5xx with a different shape, or unexpected answer fields (alpha drift) | `jev: unexpected response`        | full body to the debug log via `$.ui.log` |
+| a hook throws                                                             | engine skips the hook and logs it | typing is never affected                  |
 
 ## 5. Layout
 
@@ -315,9 +326,10 @@ jev-prompt/
   docs/spec.md                 this file
 ```
 
-To check while building: whether `claude plugin validate` accepts relative
-imports from `hooks/register.tsx` into `src/`. If it does not, the modules
-move under `hooks/`.
+`claude plugin validate` accepts relative imports from `hooks/register.tsx`
+into `src/`. The engine lets `$` reach only top-level functions of the hooks
+module and its own files, and never be stored, so `src/jev.ts` takes an `Io`
+object that `register.tsx` builds from `$`.
 
 Development runs project-local with `claude --plugin-dir
 <repo folder>`. The skill's default dev folder under
@@ -349,6 +361,8 @@ Development runs project-local with `claude --plugin-dir
   or logging. Drafts and CLAUDE.md go to TypeSafe. Check the model page's
   data policy before first real use. Redaction reduces the exposure but does
   not remove it.
+  `requireZdr` (default on) restricts the call to zero-data-retention
+  endpoints; if none serves Jev, grading stops with a notice.
 - **Price** is taken from the Jev 1.13 listing. Confirm the 1.14 price on
   OpenRouter. The cap is enforced on `usage.cost` either way.
 - **Accuracy** of a classifier-style judge on short prompts is unproven.

@@ -1,0 +1,16 @@
+{
+	"name": "jev-prompt",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"test": "claude plugin test .",
+		"validate": "claude plugin validate .",
+		"typecheck": "tsc -p .",
+		"lint": "biome check .",
+		"format": "biome format --write ."
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.6.4",
+		"typescript": "7.0.2"
+	}
+}
