@@ -1,5 +1,11 @@
 import { describe, expect, test } from "claude-code/testing";
-import { levelCount, QUESTIONS, WEIGHTS } from "../src/rubric";
+import {
+	CALIBRATED_MODEL,
+	levelCount,
+	modelLines,
+	QUESTIONS,
+	WEIGHTS,
+} from "../src/rubric";
 
 describe("levelCount", () => {
 	test("goal and context have 4 levels, every other dimension 3", () => {
@@ -171,5 +177,36 @@ describe("WEIGHTS", () => {
 				expect([t, d, Math.abs(got - w) < 1e-9]).toEqual([t, d, true]);
 			}
 		}
+	});
+});
+
+describe("modelLines", () => {
+	test("a matching model shows no warning", () => {
+		const out = modelLines(CALIBRATED_MODEL, CALIBRATED_MODEL).join("\n");
+		expect(out).toContain(`model: ${CALIBRATED_MODEL} (calibrated:`);
+		expect(out).not.toContain("uncalibrated");
+	});
+	test("a different model is named and flagged", () => {
+		const out = modelLines("typesafe/jev-9.9-20300101", CALIBRATED_MODEL).join(
+			"\n",
+		);
+		expect(out).toContain("typesafe/jev-9.9-20300101");
+		expect(out).toContain(CALIBRATED_MODEL);
+		expect(out).toContain("uncalibrated");
+	});
+	test("an answer without a model field reads as unknown and is flagged", () => {
+		const out = modelLines("unknown", CALIBRATED_MODEL).join("\n");
+		expect(out).toContain("model: unknown");
+		expect(out).toContain("uncalibrated");
+	});
+	test("before any answer, the configured model is shown as not answered yet", () => {
+		const out = modelLines(undefined, CALIBRATED_MODEL).join("\n");
+		expect(out).toContain(`model: ${CALIBRATED_MODEL} (no answer yet`);
+		expect(out).not.toContain("uncalibrated");
+	});
+	test("before any answer, a configured model off calibration is flagged", () => {
+		const out = modelLines(undefined, "typesafe/jev-1.14").join("\n");
+		expect(out).toContain("model: typesafe/jev-1.14 (no answer yet");
+		expect(out).toContain("uncalibrated");
 	});
 });

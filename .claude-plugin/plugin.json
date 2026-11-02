@@ -14,7 +14,7 @@
 			"type": "string",
 			"title": "Jev model",
 			"description": "Pinned exact: weights are calibrated per Jev version.",
-			"default": "typesafe/jev-1.14"
+			"default": "typesafe/jev-1.14-20261014"
 		},
 		"idleMs": {
 			"type": "number",

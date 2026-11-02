@@ -1,8 +1,9 @@
+import { CALIBRATED_MODEL } from "./rubric";
 import type { Config } from "./types";
 
 export const DEFAULTS: Config = {
 	apiKey: undefined,
-	model: "typesafe/jev-1.14",
+	model: CALIBRATED_MODEL,
 	idleMs: 7000,
 	requireEndPunctuation: false,
 	minChars: 10,

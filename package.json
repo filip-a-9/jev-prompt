@@ -3,7 +3,7 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"test": "claude plugin test .",
+		"test": "claude plugin test . && node --test checks/",
 		"validate": "claude plugin validate .",
 		"typecheck": "tsc -p .",
 		"lint": "biome check .",

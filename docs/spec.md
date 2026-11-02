@@ -331,6 +331,7 @@ so they are never shown as gaps.
   dimension's score, weight and confidence, and the task-type probabilities.
   When the band was quiet for that grade, one line says why: `quiet:
   uncertain` or `quiet: type other`.
+- The status shows `model: <answered> (calibrated: <id>)`, the `model` field of the last response (`unknown` if absent). Before the first grade it shows the configured model as `model: <configured> (no answer yet, calibrated: <id>)`. When it differs from `CALIBRATED_MODEL` it adds `model differs from calibration: grades are uncalibrated`. The band does not change.
 - The status also has a `prompt commands graded: /goal, /loop` line: the
   `promptCommands` list, or `none` when it is empty.
 - `/jev on` and `/jev off`: session toggle, kept in `$.state`. `on` starts the
@@ -338,19 +339,19 @@ so they are never shown as gaps.
 
 ### 4.10 Configuration (`userConfig`, read once in `src/config.ts`)
 
-| Field                   | Type              | Default             | Note                                                                                   |
-| ----------------------- | ----------------- | ------------------- | -------------------------------------------------------------------------------------- |
-| `openrouterApiKey`      | string, sensitive | none                | secure storage, never in settings.json                                                 |
-| `model`                 | string            | `typesafe/jev-1.14` | pinned exact: scores shift between Jev releases, so weights are calibrated per version |
-| `idleMs`                | number            | 7000                | pause mid-sentence                                                                     |
-| `requireEndPunctuation` | boolean           | false               | when on, grade only drafts ending in `.` `?` `!` (still after `idleMs`)                |
-| `minChars`              | number            | 10                  |                                                                                        |
-| `monthlyBudgetUsd`      | number            | 1.65                | hard cap, about $10 per half-year (section 4.6)                                        |
-| `dailyBudgetUsd`        | number            | 0.10                | hard cap, section 4.6                                                                  |
-| `priceUsdPerMTok`       | number            | 0.042               | used for the pre-call estimate only                                                    |
-| `timeoutMs`             | number            | 3000                |                                                                                        |
-| `requireZdr`            | boolean           | true                | send `provider: { zdr: true }`: only zero-data-retention endpoints may serve the call  |
-| `promptCommands`        | string            | `goal,loop`         | comma-separated slash commands (no slash) whose argument is graded; empty = none (4.2) |
+| Field                   | Type              | Default                      | Note                                                                                                                         |
+| ----------------------- | ----------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `openrouterApiKey`      | string, sensitive | none                         | secure storage, never in settings.json                                                                                       |
+| `model`                 | string            | `typesafe/jev-1.14-20261014` | pinned exact (`CALIBRATED_MODEL`, `src/rubric.ts`): scores shift between Jev releases, so weights are calibrated per version |
+| `idleMs`                | number            | 7000                         | pause mid-sentence                                                                                                           |
+| `requireEndPunctuation` | boolean           | false                        | when on, grade only drafts ending in `.` `?` `!` (still after `idleMs`)                                                      |
+| `minChars`              | number            | 10                           |                                                                                                                              |
+| `monthlyBudgetUsd`      | number            | 1.65                         | hard cap, about $10 per half-year (section 4.6)                                                                              |
+| `dailyBudgetUsd`        | number            | 0.10                         | hard cap, section 4.6                                                                                                        |
+| `priceUsdPerMTok`       | number            | 0.042                        | used for the pre-call estimate only                                                                                          |
+| `timeoutMs`             | number            | 3000                         |                                                                                                                              |
+| `requireZdr`            | boolean           | true                         | send `provider: { zdr: true }`: only zero-data-retention endpoints may serve the call                                        |
+| `promptCommands`        | string            | `goal,loop`                  | comma-separated slash commands (no slash) whose argument is graded; empty = none (4.2)                                       |
 
 `src/config.ts` validates these into one typed object. No other module reads
 `options`.

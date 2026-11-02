@@ -1,11 +1,12 @@
 import { describe, expect, test } from "claude-code/testing";
 import { DEFAULTS, parseConfig } from "../src/config";
+import { CALIBRATED_MODEL } from "../src/rubric";
 
 describe("parseConfig", () => {
 	test("empty options give the documented defaults", () => {
 		expect(parseConfig({})).toEqual({
 			apiKey: undefined,
-			model: "typesafe/jev-1.14",
+			model: "typesafe/jev-1.14-20261014",
 			idleMs: 7000,
 			requireEndPunctuation: false,
 			minChars: 10,
@@ -75,8 +76,10 @@ describe("parseConfig", () => {
 		expect(parseConfig({ apiKey: "x" }).apiKey).toBeUndefined();
 	});
 	test("blank or non-string model falls back", () => {
-		expect(parseConfig({ model: "  " }).model).toBe("typesafe/jev-1.14");
-		expect(parseConfig({ model: 3 }).model).toBe("typesafe/jev-1.14");
+		expect(parseConfig({ model: "  " }).model).toBe(
+			"typesafe/jev-1.14-20261014",
+		);
+		expect(parseConfig({ model: 3 }).model).toBe("typesafe/jev-1.14-20261014");
 	});
 	test("bad numbers fall back per field", () => {
 		const c = parseConfig({
@@ -104,5 +107,15 @@ describe("parseConfig", () => {
 		expect(c.minChars).toBe(3);
 		expect(c.idleMs).toBe(7000);
 		expect("bogus" in c).toBe(false);
+	});
+});
+
+describe("calibrated model pin", () => {
+	test("the config default is the calibrated model", () => {
+		expect(DEFAULTS.model).toBe(CALIBRATED_MODEL);
+		expect(parseConfig({}).model).toBe(CALIBRATED_MODEL);
+	});
+	test("an explicit model option still wins", () => {
+		expect(parseConfig({ model: "other/model" }).model).toBe("other/model");
 	});
 });

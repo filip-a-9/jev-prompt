@@ -17,7 +17,7 @@ import { buildState, INSTRUCTION_PATHS } from "../src/context";
 import { gradeAnswers } from "../src/grade";
 import { type Io, jevCall, loadSpend, newLedger } from "../src/jev";
 import { redactState } from "../src/redact";
-import { GAP_LABELS, TYPE_LABELS } from "../src/rubric";
+import { GAP_LABELS, modelLines, TYPE_LABELS } from "../src/rubric";
 import { createDebounce, createSingleFlight, decide } from "../src/trigger";
 import type { Config, Grade } from "../src/types";
 import type { BandView } from "../types";
@@ -33,6 +33,8 @@ const fresh = () => ({
 	config: DEFAULTS as Config,
 	/** What the band shows, mirrored so the typing path never reads state. */
 	shown: HIDDEN as BandView,
+	// The model Jev last answered with ("unknown" if the field was missing).
+	answeredModel: undefined as string | undefined,
 	lastGraded: undefined as { text: string; grade: Grade } | undefined,
 	keyNoticeShown: false,
 	/** Why calls stopped (401/403, ZDR refusal); a config change reloads. */
@@ -136,6 +138,7 @@ async function grade(
 	const out = await jevCall(ioOf($), S.config, state, S.ledger);
 	if (out.kind === "ok") {
 		S.lastGraded = { text, grade: gradeAnswers(out.answers) };
+		S.answeredModel = out.model ?? "unknown";
 	}
 	if (out.kind === "key-rejected") {
 		S.stopped = notice("jev: key rejected", "red");
@@ -210,7 +213,8 @@ async function status($: EngineInterface): Promise<string> {
 	const c = S.config;
 	const spend = await loadSpend(ioOf($)).catch(() => undefined);
 	const lines = [
-		`jev: ${(await read($, paused)) ? "off" : "on"}  ·  model ${c.model}`,
+		`jev: ${(await read($, paused)) ? "off" : "on"}`,
+		...modelLines(S.answeredModel, c.model),
 		`prompt commands graded: ${c.promptCommands.length ? c.promptCommands.map((n) => `/${n}`).join(", ") : "none"}`,
 		spend
 			? `spend today ${usd(spend.dayUsd)} of ${usd(c.dailyBudgetUsd)}, ` +

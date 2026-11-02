@@ -1,5 +1,6 @@
 import type { On, PromptChangeInput, PromptEditInput } from "claude-code";
 import { describe, type Engine, expect, mock, test } from "claude-code/testing";
+import { CALIBRATED_MODEL } from "../src/rubric";
 import { bugfixZdr } from "./fixtures/bugfix-zdr";
 
 // The world beneath the plugin: a prompt box, a mocked clock and store, an
@@ -746,4 +747,51 @@ describe("/jev last grade", () => {
 			expect((await jev($)).text).toContain("quiet: type other");
 		},
 	);
+});
+
+describe("/jev model line", () => {
+	const gradeThenStatus = async (
+		$: Engine,
+		on: On,
+		body: Record<string, unknown>,
+	) => {
+		const w = world(on, () => ({
+			status: 200,
+			text: JSON.stringify(body),
+		}));
+		await type($, w, "fix the login bug please");
+		await w.clock.advance(7000);
+		return (await jev($)).text;
+	};
+
+	test(
+		"the calibrated model is shown without a warning",
+		KEY,
+		async ($, on) => {
+			const text = await gradeThenStatus($, on, bugfixZdr.body);
+			expect(text).toContain(`model: ${CALIBRATED_MODEL} (calibrated:`);
+			expect(text).not.toContain("uncalibrated");
+		},
+	);
+
+	test(
+		"a different answered model is shown and flagged",
+		KEY,
+		async ($, on) => {
+			const text = await gradeThenStatus($, on, {
+				...bugfixZdr.body,
+				model: "typesafe/jev-9.9-20300101",
+			});
+			expect(text).toContain("typesafe/jev-9.9-20300101");
+			expect(text).toContain("uncalibrated");
+		},
+	);
+
+	test("a missing model reads as unknown, not an error", KEY, async ($, on) => {
+		const { model: _, ...noModel } = bugfixZdr.body;
+		const text = await gradeThenStatus($, on, noModel);
+		expect(text).toContain("unknown");
+		expect(text).toContain("uncalibrated");
+		expect(text).toContain("last grade");
+	});
 });

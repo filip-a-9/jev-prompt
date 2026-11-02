@@ -130,6 +130,26 @@ function row(
 	};
 }
 
+/** The Jev release the weights below were fitted on (spec 4.10, 6). */
+export const CALIBRATED_MODEL = "typesafe/jev-1.14-20261014";
+
+/**
+ * The /jev lines for the model: the one Jev answered with, or before any
+ * answer (undefined) the configured one, marked as not answered yet.
+ */
+export function modelLines(
+	answered: string | undefined,
+	configured: string,
+): string[] {
+	const model = answered ?? configured;
+	const note = answered === undefined ? "no answer yet, " : "";
+	const lines = [`model: ${model} (${note}calibrated: ${CALIBRATED_MODEL})`];
+	if (model !== CALIBRATED_MODEL) {
+		lines.push("model differs from calibration: grades are uncalibrated");
+	}
+	return lines;
+}
+
 /**
  * Calibrated weights (spec 6), for typesafe/jev-1.14-20261014: one row R for
  * every type, fitted on 84 labelled prompts. bug_fix mixes in evidence at .25

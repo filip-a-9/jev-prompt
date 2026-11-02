@@ -123,7 +123,7 @@ export type Spend = {
 
 /** Every outcome of one jevCall (spec 4.6, 4.11). */
 export type JevOutcome =
-	| { kind: "ok"; answers: Answers; costUsd: number }
+	| { kind: "ok"; answers: Answers; costUsd: number; model?: string }
 	| { kind: "budget" }
 	| { kind: "offline" }
 	| { kind: "key-rejected" }

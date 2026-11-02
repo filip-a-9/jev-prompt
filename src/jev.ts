@@ -359,6 +359,7 @@ async function call(
 				kind: "ok",
 				answers,
 				costUsd: costOf(parsed) ?? estimate,
+				model: modelOf(parsed),
 			};
 		}
 	}
@@ -368,4 +369,10 @@ async function call(
 		// A log that fails must not hide the outcome.
 	}
 	return { kind: "unexpected", body: settled.text };
+}
+
+/** The response's `model` field, when it is a non-empty string. */
+function modelOf(parsed: unknown): string | undefined {
+	const m = (parsed as { model?: unknown } | null)?.model;
+	return typeof m === "string" && m !== "" ? m : undefined;
 }

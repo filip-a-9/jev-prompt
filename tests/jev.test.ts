@@ -844,6 +844,23 @@ describe("answers from captured responses", () => {
 		expect(out.answers.task_type.probabilities.bug_fix).toBe(0.97);
 	});
 
+	test("an ok outcome carries the model the response names", async () => {
+		const w = world({ reply: bugfixZdr as Fixture });
+		const out = await jevCall(w.io, config(), STATE, newLedger());
+		if (out.kind !== "ok") throw new Error(`got ${out.kind}`);
+		expect(out.model).toBe(bugfixZdr.body.model);
+	});
+
+	test("an ok outcome without a model field has no model", async () => {
+		const body = clone(bugfixZdr.body);
+		// biome-ignore lint/suspicious/noExplicitAny: removing a field
+		delete (body as any).model;
+		const w = world({ reply: { status: 200, body } as Fixture });
+		const out = await jevCall(w.io, config(), STATE, newLedger());
+		if (out.kind !== "ok") throw new Error(`got ${out.kind}`);
+		expect(out.model).toBeUndefined();
+	});
+
 	test("a confidence of 0 is valid", async () => {
 		const w = world({ reply: bugfixZdr as Fixture });
 		const out = await jevCall(w.io, config(), STATE, newLedger());
