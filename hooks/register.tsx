@@ -169,7 +169,7 @@ async function onIdle($: EngineInterface): Promise<void> {
 	if (!S.config.apiKey) {
 		if (!S.keyNoticeShown) {
 			S.keyNoticeShown = true;
-			show($, notice("jev: set key in /config", "gray"));
+			show($, notice("jev: no API key, see /jev", "gray"));
 		}
 		return;
 	}
@@ -201,7 +201,12 @@ async function status($: EngineInterface): Promise<string> {
 		`spend today ${usd(spend.dayUsd)} of ${usd(c.dailyBudgetUsd)}, ` +
 			`this month ${usd(spend.monthUsd)} of ${usd(c.monthlyBudgetUsd)}`,
 	];
-	if (!c.apiKey) lines.push("no key set: /config → jev-prompt");
+	if (!c.apiKey) {
+		lines.push(
+			"no key set: /plugin install jev-prompt@jev-prompt asks for it " +
+				"(secret options are not shown in /config)",
+		);
+	}
 	const g = S.lastGraded?.grade;
 	if (g) {
 		lines.push(`last grade ${g.certain ? "" : "~"}${g.grade}%`);

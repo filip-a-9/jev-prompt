@@ -128,7 +128,7 @@ Jev via OpenRouter:
 - The draft starts with `/` (slash command) or `!` (bash mode).
 - The text equals the last graded text: re-show the cached grade.
 - Grading is paused (`/jev off`) or no API key is set (band shows
-  `jev: set key in /config`, once per session).
+  `jev: no API key, see /jev`, once per session).
 - The budget is exhausted (see 4.6): band shows `jev: budget reached`.
 
 ### 4.3 State sent to Jev
@@ -331,9 +331,14 @@ into `src/`. The engine lets `$` reach only top-level functions of the hooks
 module and its own files, and never be stored, so `src/jev.ts` takes an `Io`
 object that `register.tsx` builds from `$`.
 
-Development runs project-local with `claude --plugin-dir
-<repo folder>`. The skill's default dev folder under
-`~/.claude/` is global, which goes against the project-local rule.
+The project folder is its own local marketplace
+(`.claude-plugin/marketplace.json`): `/plugin marketplace add
+<repo folder>`, then `/plugin install jev-prompt@jev-prompt`.
+The install screen asks for the key: `/config` shows only non-secret options,
+and `claude --plugin-dir` has no install step, so it runs without a key. An
+install from a folder runs that folder itself; `/reload-plugins` picks up
+edits. The skill's default dev folder under `~/.claude/` is global,
+which goes against the project-local rule.
 
 ## 6. Testing and calibration
 

@@ -431,7 +431,7 @@ describe("band", () => {
 		const w = world(on, () => unauthorized);
 		await type($, w, "fix the login bug");
 		await w.clock.advance(10000);
-		expect((await band($))?.text).toContain("/config");
+		expect((await band($))?.text).toContain("/jev");
 		expect(w.calls.length).toBe(0);
 	});
 
@@ -457,6 +457,11 @@ describe("band", () => {
 });
 
 describe("/jev", () => {
+	test("without a key, status says the install screen asks for it", async ($, on) => {
+		world(on, () => unauthorized);
+		expect((await jev($)).text).toContain("/plugin install");
+	});
+
 	test(
 		"off stops grading and hides the band; on resumes",
 		KEY,

@@ -1,0 +1,5 @@
+{
+	"name": "jev-prompt",
+	"owner": { "name": "EDantes" },
+	"plugins": [{ "name": "jev-prompt", "source": "./" }]
+}
