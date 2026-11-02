@@ -4,8 +4,8 @@ export type BandView =
 	| { kind: "notice"; text: string; tone: "gray" | "red" }
 	| {
 			kind: "grade";
-			grade: number;
-			certain: boolean;
+			/** speak names gaps; clear says nothing is missing. */
+			mode: "speak" | "clear";
 			typeLabel: string;
 			gaps: readonly string[];
 			stale: boolean;

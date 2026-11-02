@@ -217,9 +217,9 @@ describe("gaps", () => {
 		expect(bugFix({ verification: 0 }).gaps).toEqual(["verification"]);
 	});
 
-	test("the three largest shortfalls w*(1-s) are kept, largest first", () => {
+	test("the two largest shortfalls w*(1-s) are kept, largest first", () => {
 		// evidence .25*1=.25, context .20*1=.20, verification .15*1=.15,
-		// goal .20*(1-1/3)=.133, focus .10*1=.10 -> top 3 drops goal and focus
+		// goal .20*(1-1/3)=.133, focus .10*1=.10 -> top 2 keeps evidence, context
 		const g = bugFix({
 			goal: 1,
 			context: 0,
@@ -227,7 +227,7 @@ describe("gaps", () => {
 			evidence: 0,
 			focus: 0,
 		});
-		expect(g.gaps).toEqual(["evidence", "context", "verification"]);
+		expect(g.gaps).toEqual(["evidence", "context"]);
 	});
 
 	test("equal shortfalls keep DIMENSIONS order", () => {

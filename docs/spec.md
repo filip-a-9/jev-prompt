@@ -1,6 +1,6 @@
 # jev-prompt — live prompt grader for Claude Code
 
-Status: design, not built. Target: Claude Code 2.1.316 mod API (hooks module).
+Status: built and installed (v1, hardening, prompt commands, band redesign). Target: Claude Code 2.1.316 mod API (hooks module).
 Audience: the author first; written so it can be published as a plugin later.
 
 ## 1. What it does
@@ -8,31 +8,35 @@ Audience: the author first; written so it can be published as a plugin later.
 While you type in the Claude Code prompt box, jev-prompt waits until the draft
 is at least 10 characters and you have stopped typing for 7 seconds (section
 4.1). It then
-grades the draft 0–100% against a prompting rubric and shows the score above
-the prompt box together with the 1–3 biggest gaps:
+grades the draft 0–100% against a prompting rubric. The number stays out of
+sight (it is only a rough guide, section 6); above the prompt box it shows
+the task type and, only when the grade is likely right, up to 2 gaps:
 
 ```
-jev 58%  bug fix  ·  missing: how to verify, error output
+jev  bug fix  ·  missing: how to verify, which file
+jev  bug fix  ·  clear
 ```
+
+When the grade is uncertain or the type is `other`, the band stays hidden.
 
 It is advisory only. Enter always sends; the grade never blocks, delays or
 rewrites a prompt.
 
 ## 2. Decisions taken in the interview
 
-| Topic          | Decision                                                                                                                                                               |
-| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Grader         | Jev (TypeSafe's decision model) through OpenRouter, using the author's existing key. Jev gives probability-weighted scores and generates no text.                           |
+| Topic          | Decision                                                                                                                                                              |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Grader         | Jev (TypeSafe's decision model) through OpenRouter, using the author's existing key. Jev gives probability-weighted scores and generates no text.                          |
 | Trigger        | ≥ 10 chars and 7 s idle; a 5 s pause fired mid-thought. Punctuation never shortens the wait. An opt-in setting additionally requires the draft to end in `.` `?` `!`. |
-| Cost           | About $10 per half-year at most: hard caps of $1.65 a month and $0.10 a day (section 4.6).                                                                             |
-| Grade shape    | 0–100%, a weighted combination of per-dimension Jev scores (TypeSafe's "composite scoring" pattern).                                                                   |
-| Methodology    | Anthropic prompting guidance, project-aware (CLAUDE.md), task-type aware.                                                                                              |
-| Feedback       | Score plus the top gaps in a band above the prompt. No inline marks, no rewrite, no history in v1.                                                                     |
-| On submit      | Never interferes.                                                                                                                                                      |
-| Short replies  | Context-aware: "yes, do that" after Claude asked a question is a good prompt.                                                                                          |
-| Context sent   | Draft, Claude's last reply, your previous prompt, and the project's CLAUDE.md, capped below Jev's 32 KB fast-mode limit.                                               |
-| Secrets        | Redacted locally before sending; `/jev off` pauses grading.                                                                                                            |
-| Existing tools | None found that grades live while typing. PromptOps, PQS and claude-code-auditor all grade on demand or grade files.                                                   |
+| Cost           | About $10 per half-year at most: hard caps of $1.65 a month and $0.10 a day (section 4.6).                                                                            |
+| Grade shape    | 0–100%, a weighted combination of per-dimension Jev scores (TypeSafe's "composite scoring" pattern).                                                                  |
+| Methodology    | Anthropic prompting guidance, project-aware (CLAUDE.md), task-type aware.                                                                                             |
+| Feedback       | The task type plus up to 2 gaps (no number), only when likely right, in a band above the prompt. No inline marks, no rewrite, no history in v1.                       |
+| On submit      | Never interferes.                                                                                                                                                     |
+| Short replies  | Context-aware: "yes, do that" after Claude asked a question is a good prompt.                                                                                         |
+| Context sent   | Draft, Claude's last reply, your previous prompt, and the project's CLAUDE.md, capped below Jev's 32 KB fast-mode limit.                                              |
+| Secrets        | Redacted locally before sending; `/jev off` pauses grading.                                                                                                           |
+| Existing tools | None found that grades live while typing. PromptOps, PQS and claude-code-auditor all grade on demand or grade files.                                                  |
 
 ## 3. Platform facts this design relies on
 
@@ -283,10 +287,10 @@ calibration shows neighbouring levels getting split.
    smooth mix instead of a hard switch.
 4. `grade = round(100 · Σ_d w_d · s_d)`.
 5. Gaps are the dimensions with `w_d ≥ 0.10` and `s_d < 0.5`, ranked by
-   `w_d · (1 − s_d)`, top 3, each shown by its short label (`how to verify`,
+   `w_d · (1 − s_d)`, top 2 (`GAP_COUNT`), each shown by its short label (`how to verify`,
    `which file/error`, …).
 6. Certainty: if the weighted mean of the score confidences is below 0.4,
-   the grade is shown as `~58%`.
+   the grade is `uncertain` and the band stays quiet (section 4.8).
 
 Weights, calibrated for `typesafe/jev-1.14-20261014` (section 6). One row
 for every type: goal .35, context .40, focus .25. bug_fix takes .75 of it plus
@@ -304,9 +308,16 @@ so they are never shown as gaps.
 
 - `ui.render` on `AbovePrompt`. If `e.props.hasSurvey` is set, the band shows
   nothing.
-- One line: `jev <grade>%  <type label>  ·  missing: <gaps>`.
-- Colour by grade: ≥ 80 green, 50–79 yellow, < 50 red.
-- Stale (typing after a grade), `grading…`, and notices use explicit mid-gray
+- `bandDecision(grade)` in `src/band.tsx` returns one of three, from named
+  constants (`QUIET_TYPE`, `SPEAK_COLOR`); `/jev` uses the same function:
+  - _speak_: grade `certain`, type not `other`, at least one gap. Line
+    `jev  <type label>  ·  missing: <gap>, <gap>` (at most 2 gaps, most
+    important first), warning colour.
+  - _clear_: `certain`, type not `other`, no gaps. Line
+    `jev  <type label>  ·  clear`, gray.
+  - _quiet_: uncertain, or type `other`. Hidden.
+- No digits, no `~`, and no red/yellow/green by score anywhere in the band.
+- Stale (typing after a shown line), `grading…`, and notices use explicit mid-gray
   (ansi256 245). Never `dimColor`, which renders black on the author's black
   background.
 - Hidden when the draft is under 10 characters and after submit.
@@ -316,8 +327,10 @@ so they are never shown as gaps.
 `/jev`:
 
 - `/jev`: status (on/off, today's spend against the cap, model) and the last
-  grade's full breakdown: every dimension's score, weight and confidence, plus
-  the task-type probabilities.
+  grade's full breakdown: the number (labelled `rough`), `certain`, every
+  dimension's score, weight and confidence, and the task-type probabilities.
+  When the band was quiet for that grade, one line says why: `quiet:
+  uncertain` or `quiet: type other`.
 - The status also has a `prompt commands graded: /goal, /loop` line: the
   `promptCommands` list, or `none` when it is empty.
 - `/jev on` and `/jev off`: session toggle, kept in `$.state`. `on` starts the
@@ -417,6 +430,21 @@ which goes against the project-local rule.
     the usual miss; Jev rates them ok.
   - A new Jev version, or any change to the wording, means calibrating
     again.
+- Band redesign (2026-11-02, display only, no recalibration). Why the band
+  shows hints only and only when likely right: the same prompt moves 2 points
+  on average (up to 6) across 3 identical calls; bands agree with labels on
+  197/300 calls (66%, trivial baseline 46%); the old "missing" hints were
+  right 65% of the time and nagged 34% of good prompts. Replay over the 300
+  baseline captures, no calls:
+
+  | rule for showing gaps                  | precision    | good left alone | recall (not good) |
+  | -------------------------------------- | ------------ | --------------- | ----------------- |
+  | old (any gaps)                         | 88/135 (65%) | 91/138 (66%)    | 88/162 (54%)      |
+  | `certain` only                         | 39/47 (83%)  | 130/138 (94%)   | 39/162 (24%)      |
+  | `certain` and type ≠ `other` (shipped) | 39/44 (89%)  | 133/138 (96%)   | 39/162 (24%)      |
+
+  Type `other` agrees with labels on 6/34 calls (18%), against 71% for
+  `follow_up` and 76% for `question`.
 
 ## 7. Risks and open points
 

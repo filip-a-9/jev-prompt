@@ -148,10 +148,32 @@ const graded: Reply = {
 	status: bugfixZdr.status,
 	text: JSON.stringify(bugfixZdr.body),
 };
-/** Band colour the spec (4.8) gives a grade: green, yellow or red. */
-const colourOf = (grade: number) =>
-	grade >= 80 ? "success" : grade >= 50 ? "warning" : "error";
-const percent = (text = "") => Number(/jev ~?(\d+)%/.exec(text)?.[1]);
+/** Jev's real bug-fix answers with some replaced: a built reply. */
+type Ans = Record<string, unknown>;
+type Loose = Record<string, Ans> & { task_type: Ans; context: Ans };
+function built(patch: (answers: Loose) => void): Reply {
+	const body = structuredClone(bugfixZdr.body) as unknown as {
+		answers: Loose;
+	};
+	patch(body.answers);
+	return { status: 200, text: JSON.stringify(body) };
+}
+/** Bug fix with no file or error named: context scores 0, with confidence. */
+const missingContext = built((a) => {
+	a.context.score = 0;
+	a.context.confidence = 0.95;
+});
+/** Every answer unsure: the weighted confidence falls below the floor. */
+const unsure = built((a) => {
+	for (const v of Object.values(a)) v.confidence = 0.05;
+	a.context.score = 0;
+});
+/** Type other, with a gap that would otherwise be shown. */
+const typeOther = built((a) => {
+	a.task_type.choice = "other";
+	a.task_type.probabilities = { other: 1 };
+	a.context.score = 0;
+});
 
 /** A reply the test releases by hand, to hold a request in flight. */
 function held() {
@@ -369,7 +391,7 @@ describe("trigger", () => {
 
 describe("band", () => {
 	test(
-		"a grade shows its percent, task type and the colour for that percent",
+		"a real clean bug-fix grade says clear, in gray, with no digits",
 		KEY,
 		async ($, on) => {
 			const w = world(on, () => graded);
@@ -377,18 +399,49 @@ describe("band", () => {
 			await w.clock.advance(10000);
 			const shown = await band($);
 			expect(shown?.text).toContain("bug fix");
-			const p = percent(shown?.text);
-			expect(p).toBeGreaterThanOrEqual(0);
-			expect(p).toBeLessThanOrEqual(100);
-			expect(shown?.color).toBe(colourOf(p));
+			expect(shown?.text).toContain("clear");
+			expect(shown?.text).not.toMatch(/[0-9~%]/);
+			expect(shown?.color).toBe("ansi256(245)");
 		},
 	);
 
-	test("typing turns a shown grade gray", KEY, async ($, on) => {
-		const w = world(on, () => graded);
-		await type($, w, "fix the login bug in src/auth.ts");
+	test(
+		"a certain grade with a gap speaks: the missing part, in the warning colour",
+		KEY,
+		async ($, on) => {
+			const w = world(on, () => missingContext);
+			await type($, w, "fix the login bug somewhere in the app");
+			await w.clock.advance(10000);
+			const shown = await band($);
+			expect(shown?.text).toContain("bug fix");
+			expect(shown?.text).toContain("missing:");
+			expect(shown?.text).not.toMatch(/[0-9~%]/);
+			expect(shown?.color).toBe("warning");
+		},
+	);
+
+	test("an uncertain grade leaves the band empty", KEY, async ($, on) => {
+		const w = world(on, () => unsure);
+		await type($, w, "fix the login bug somewhere in the app");
+		await w.clock.advance(10000);
+		expect(w.calls.length).toBe(1);
+		expect(await band($)).toBeUndefined();
+	});
+
+	test("type other leaves the band empty", KEY, async ($, on) => {
+		const w = world(on, () => typeOther);
+		await type($, w, "fix the login bug somewhere in the app");
+		await w.clock.advance(10000);
+		expect(w.calls.length).toBe(1);
+		expect(await band($)).toBeUndefined();
+	});
+
+	test("typing turns a shown line gray", KEY, async ($, on) => {
+		const w = world(on, () => missingContext);
+		await type($, w, "fix the login bug somewhere in the app");
 		await w.clock.advance(10000);
 		const before = await band($);
+		expect(before?.color).toBe("warning");
 		await type($, w, " now");
 		const after = await band($);
 		expect(after?.text).toBe(before?.text);
@@ -653,6 +706,44 @@ describe("/jev", () => {
 			await jev($, "off");
 			const off = await jev($);
 			expect(off.text).not.toBe(on1.text);
+		},
+	);
+});
+
+describe("/jev last grade", () => {
+	test(
+		"shows the rough number and the task type after a shown grade",
+		KEY,
+		async ($, on) => {
+			const w = world(on, () => missingContext);
+			await type($, w, "fix the login bug somewhere in the app");
+			await w.clock.advance(10000);
+			const out = await jev($);
+			expect(out.text).toMatch(/rough \d+%/);
+			expect(out.text).toContain("task type");
+			expect(out.text).not.toContain("quiet");
+		},
+	);
+
+	test(
+		"says quiet: uncertain when the band stayed empty for that",
+		KEY,
+		async ($, on) => {
+			const w = world(on, () => unsure);
+			await type($, w, "fix the login bug somewhere in the app");
+			await w.clock.advance(10000);
+			expect((await jev($)).text).toContain("quiet: uncertain");
+		},
+	);
+
+	test(
+		"says quiet: type other when the band stayed empty for that",
+		KEY,
+		async ($, on) => {
+			const w = world(on, () => typeOther);
+			await type($, w, "fix the login bug somewhere in the app");
+			await w.clock.advance(10000);
+			expect((await jev($)).text).toContain("quiet: type other");
 		},
 	);
 });

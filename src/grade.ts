@@ -16,9 +16,9 @@ import {
 const GAP_MIN_WEIGHT = 0.1;
 /** A gap needs a normalised score below this. */
 const GAP_MAX_SCORE = 0.5;
-/** Up to this many gaps are shown. */
-const GAP_COUNT = 3;
-/** Below this weighted mean confidence the grade is shown as uncertain. */
+/** Up to this many gaps are kept. */
+const GAP_COUNT = 2;
+/** Below this weighted mean confidence the grade is uncertain (the band stays quiet). */
 const MIN_CONFIDENCE = 0.4;
 /** Blended weights are sums of products, so 0.10 may land a hair under it. */
 const EPSILON = 1e-9;

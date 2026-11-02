@@ -99,7 +99,7 @@ export type Grade = {
 	/** most probable task type */
 	type: TaskType;
 	typeProbabilities: Readonly<Record<TaskType, number>>;
-	/** up to 3, most important first */
+	/** up to 2, most important first */
 	gaps: readonly Dimension[];
 	/** false when the weighted mean confidence is below 0.4 */
 	certain: boolean;

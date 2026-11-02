@@ -11,7 +11,7 @@ import {
 	read,
 	update,
 } from "claude-code";
-import { bandLine } from "../src/band";
+import { bandDecision, bandLine, quietReason } from "../src/band";
 import { DEFAULTS, parseConfig } from "../src/config";
 import { buildState, INSTRUCTION_PATHS } from "../src/context";
 import { gradeAnswers } from "../src/grade";
@@ -52,14 +52,17 @@ const notice = (text: string, tone: "gray" | "red"): BandView => ({
 	tone,
 });
 
-const gradeView = (g: Grade): BandView => ({
-	kind: "grade",
-	grade: g.grade,
-	certain: g.certain,
-	typeLabel: TYPE_LABELS[g.type],
-	gaps: g.gaps.map((d) => GAP_LABELS[d]),
-	stale: false,
-});
+const gradeView = (g: Grade): BandView => {
+	const mode = bandDecision(g);
+	if (mode === "quiet") return HIDDEN;
+	return {
+		kind: "grade",
+		mode,
+		typeLabel: TYPE_LABELS[g.type],
+		gaps: g.gaps.map((d) => GAP_LABELS[d]),
+		stale: false,
+	};
+};
 
 const usd = (n: number) => `$${n.toFixed(4)}`;
 
@@ -222,7 +225,11 @@ async function status($: EngineInterface): Promise<string> {
 	}
 	const g = S.lastGraded?.grade;
 	if (g) {
-		lines.push(`last grade ${g.certain ? "" : "~"}${g.grade}%`);
+		lines.push(
+			`last grade: rough ${g.grade}%, ${g.certain ? "certain" : "uncertain"}`,
+		);
+		const why = quietReason(g);
+		if (why) lines.push(`quiet: ${why}`);
 		lines.push("dimension      score  weight  confidence");
 		for (const [d, r] of Object.entries(g.dimensions)) {
 			lines.push(
