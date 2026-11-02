@@ -14,6 +14,7 @@ describe("parseConfig", () => {
 			priceUsdPerMTok: 0.042,
 			timeoutMs: 3000,
 			requireZdr: true,
+			promptCommands: ["goal", "loop"],
 		});
 	});
 	test("DEFAULTS equals parseConfig({})", () => {
@@ -33,6 +34,7 @@ describe("parseConfig", () => {
 				priceUsdPerMTok: 0.5,
 				timeoutMs: 1000,
 				requireZdr: false,
+				promptCommands: "schedule",
 			}),
 		).toEqual({
 			apiKey: "k1",
@@ -45,7 +47,25 @@ describe("parseConfig", () => {
 			priceUsdPerMTok: 0.5,
 			timeoutMs: 1000,
 			requireZdr: false,
+			promptCommands: ["schedule"],
 		});
+	});
+	test("promptCommands is split, trimmed, lower-cased and stripped of empties", () => {
+		expect(
+			parseConfig({ promptCommands: " Goal , loop,," }).promptCommands,
+		).toEqual(["goal", "loop"]);
+	});
+	test("a leading slash on a promptCommands entry is dropped", () => {
+		expect(
+			parseConfig({ promptCommands: "/goal, /Loop" }).promptCommands,
+		).toEqual(["goal", "loop"]);
+	});
+	test("a non-string promptCommands falls back; an empty string means none", () => {
+		expect(parseConfig({ promptCommands: 7 }).promptCommands).toEqual([
+			"goal",
+			"loop",
+		]);
+		expect(parseConfig({ promptCommands: "" }).promptCommands).toEqual([]);
 	});
 	test("blank or non-string apiKey is undefined", () => {
 		expect(parseConfig({ openrouterApiKey: "   " }).apiKey).toBeUndefined();

@@ -105,8 +105,15 @@ async function instructionFiles($: EngineInterface): Promise<string[]> {
 	return files;
 }
 
-/** One grade of `text`, run through the single flight. */
-async function grade($: EngineInterface, text: string): Promise<void> {
+/**
+ * One grade of the box `text`, run through the single flight. `draft` is what
+ * Jev sees: the same text, or the prompt inside a command like /goal.
+ */
+async function grade(
+	$: EngineInterface,
+	text: string,
+	draft: string,
+): Promise<void> {
 	// It may have waited behind a call that stopped or paused grading, or
 	// the draft may have changed since it was queued.
 	const why = await blocked($);
@@ -118,7 +125,7 @@ async function grade($: EngineInterface, text: string): Promise<void> {
 	}));
 	const state = redactState(
 		buildState({
-			draft: text,
+			draft,
 			messages,
 			instructionFiles: await instructionFiles($),
 		}),
@@ -160,7 +167,8 @@ async function grade($: EngineInterface, text: string): Promise<void> {
 async function onIdle($: EngineInterface): Promise<void> {
 	if (await read($, paused)) return;
 	const { text } = await $.prompt.read();
-	switch (decide(text, S.config, S.lastGraded?.text)) {
+	const decision = decide(text, S.config, S.lastGraded?.text);
+	switch (decision.kind) {
 		case "hide":
 			return show($, HIDDEN);
 		case "wait":
@@ -179,7 +187,7 @@ async function onIdle($: EngineInterface): Promise<void> {
 	if (why) return show($, why);
 	show($, { kind: "grading" });
 	void S.flight.request(text, (t: string) =>
-		grade($, t)
+		grade($, t, decision.draft)
 			.catch(() => {})
 			.finally(() => settle($)),
 	);
@@ -200,6 +208,7 @@ async function status($: EngineInterface): Promise<string> {
 	const spend = await loadSpend(ioOf($)).catch(() => undefined);
 	const lines = [
 		`jev: ${(await read($, paused)) ? "off" : "on"}  ·  model ${c.model}`,
+		`prompt commands graded: ${c.promptCommands.length ? c.promptCommands.map((n) => `/${n}`).join(", ") : "none"}`,
 		spend
 			? `spend today ${usd(spend.dayUsd)} of ${usd(c.dailyBudgetUsd)}, ` +
 				`this month ${usd(spend.monthUsd)} of ${usd(c.monthlyBudgetUsd)}`

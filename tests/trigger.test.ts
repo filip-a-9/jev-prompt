@@ -95,39 +95,172 @@ describe("debounce", () => {
 });
 
 describe("decide", () => {
-	const base = { minChars: 10, requireEndPunctuation: false };
+	const base = {
+		minChars: 10,
+		requireEndPunctuation: false,
+		promptCommands: ["goal", "loop"],
+	};
 
 	test("a draft under minChars after trimming hides the band", () => {
-		expect(decide("  short   ", base, undefined)).toBe("hide");
+		expect(decide("  short   ", base, undefined).kind).toBe("hide");
 	});
 
 	test("a slash command or bash-mode draft hides the band", () => {
-		expect(decide("/compact keep the plan", base, undefined)).toBe("hide");
-		expect(decide("!git status --short", base, undefined)).toBe("hide");
+		expect(decide("/compact keep the plan", base, undefined).kind).toBe("hide");
+		expect(decide("!git status --short", base, undefined).kind).toBe("hide");
 	});
 
 	test("a draft equal to the last graded text reuses the cached grade", () => {
-		expect(decide("fix the login bug", base, "fix the login bug")).toBe(
+		expect(decide("fix the login bug", base, "fix the login bug").kind).toBe(
 			"cached",
 		);
 	});
 
+	test("a plain draft is graded as typed", () => {
+		expect(decide("fix the login bug?", base, undefined)).toEqual({
+			kind: "grade",
+			draft: "fix the login bug?",
+		});
+	});
+
+	test("a /goal objective is graded without the command", () => {
+		expect(
+			decide(
+				"/goal fix the flaky login test and add a regression test",
+				base,
+				undefined,
+			),
+		).toEqual({
+			kind: "grade",
+			draft: "fix the flaky login test and add a regression test",
+		});
+	});
+
+	test("a /goal separated by a newline is extracted too", () => {
+		expect(decide("/goal\nfix the flaky login test", base, undefined)).toEqual({
+			kind: "grade",
+			draft: "fix the flaky login test",
+		});
+	});
+
+	test("/loop drops its interval and grades the prompt", () => {
+		expect(
+			decide("/loop 5m check the deploy and report failures", base, undefined),
+		).toEqual({ kind: "grade", draft: "check the deploy and report failures" });
+	});
+
+	test("/loop without an interval grades all of its argument", () => {
+		expect(decide("/loop check deploy", base, undefined)).toEqual({
+			kind: "grade",
+			draft: "check deploy",
+		});
+	});
+
+	test("/loop running a command, or an interval alone, hides", () => {
+		expect(decide("/loop 5m /babysit-prs", base, undefined).kind).toBe("hide");
+		expect(decide("/loop 5m", base, undefined).kind).toBe("hide");
+	});
+
+	test("an interval is only dropped after /loop", () => {
+		expect(decide("/goal 5m is too slow, fix it", base, undefined).draft).toBe(
+			"5m is too slow, fix it",
+		);
+	});
+
+	test("a /goal under minChars after extraction hides", () => {
+		expect(decide("/goal fix it", base, undefined).kind).toBe("hide");
+	});
+
+	test("end punctuation is judged on the extracted prompt", () => {
+		const opt = { ...base, requireEndPunctuation: true };
+		expect(decide("/goal fix the login bug and", opt, undefined).kind).toBe(
+			"wait",
+		);
+		expect(decide("/goal fix the login bug.", opt, undefined).kind).toBe(
+			"grade",
+		);
+	});
+
+	test("the command name is case-insensitive and needs a space after it", () => {
+		expect(decide("/GOAL fix the flaky login test", base, undefined).kind).toBe(
+			"grade",
+		);
+		expect(
+			decide("/goalx fix the flaky login test", base, undefined).kind,
+		).toBe("hide");
+	});
+
+	test("the configured list decides which commands carry a prompt", () => {
+		const opt = { ...base, promptCommands: ["goal", "schedule"] };
+		expect(
+			decide("/schedule nightly cleanup of tmp", opt, undefined).kind,
+		).toBe("grade");
+		expect(decide("/loop 5m check the deploy now", opt, undefined).kind).toBe(
+			"hide",
+		);
+		const none = { ...base, promptCommands: [] };
+		expect(decide("/goal fix the flaky login test", none, undefined).kind).toBe(
+			"hide",
+		);
+	});
+
+	test("only /loop hides an argument that starts with a slash", () => {
+		expect(
+			decide("/goal /tmp/x.ts is broken please fix", base, undefined),
+		).toEqual({ kind: "grade", draft: "/tmp/x.ts is broken please fix" });
+		expect(decide("/loop /babysit-prs", base, undefined).kind).toBe("hide");
+		const opt = { ...base, promptCommands: ["foo"] };
+		expect(decide("/foo /tmp/x.ts is broken", opt, undefined)).toEqual({
+			kind: "grade",
+			draft: "/tmp/x.ts is broken",
+		});
+	});
+
+	test("a command with no argument hides", () => {
+		const opt = { ...base, minChars: 0 };
+		expect(decide("/goal", opt, undefined).kind).toBe("hide");
+		expect(decide("/goal    ", opt, undefined).kind).toBe("hide");
+	});
+
+	test("a tab or CRLF after the command name still extracts", () => {
+		expect(
+			decide("/goal\tfix the flaky login test", base, undefined).draft,
+		).toBe("fix the flaky login test");
+		expect(
+			decide("/goal\r\nfix the flaky login test", base, undefined).draft,
+		).toBe("fix the flaky login test");
+	});
+
+	test("only a bare s, m, h or d interval is dropped: 5min stays in the draft", () => {
+		expect(
+			decide("/loop 5min check the deploy now", base, undefined).draft,
+		).toBe("5min check the deploy now");
+	});
+
+	test("a cached grade is matched on the full text, command included", () => {
+		const text = "/loop 5m check the deploy and report failures";
+		expect(decide(text, base, text).kind).toBe("cached");
+		expect(
+			decide("/loop 10m check the deploy and report failures", base, text).kind,
+		).toBe("grade");
+	});
+
 	test("a long enough new draft is graded, whatever its punctuation", () => {
-		expect(decide("fix the login bug?", base, undefined)).toBe("grade");
-		expect(decide("fix the login bug and", base, undefined)).toBe("grade");
+		expect(decide("fix the login bug?", base, undefined).kind).toBe("grade");
+		expect(decide("fix the login bug and", base, undefined).kind).toBe("grade");
 	});
 
 	test("with requireEndPunctuation, a draft ending mid-sentence waits", () => {
-		const opt = { minChars: 10, requireEndPunctuation: true };
-		expect(decide("fix the login bug and", opt, undefined)).toBe("wait");
-		expect(decide("see file.ts for the bug", opt, undefined)).toBe("wait");
+		const opt = { ...base, requireEndPunctuation: true };
+		expect(decide("fix the login bug and", opt, undefined).kind).toBe("wait");
+		expect(decide("see file.ts for the bug", opt, undefined).kind).toBe("wait");
 	});
 
 	test("with requireEndPunctuation, the draft's end decides, trailing space ignored", () => {
-		const opt = { minChars: 10, requireEndPunctuation: true };
-		expect(decide("fix the login bug.  \n", opt, undefined)).toBe("grade");
-		expect(decide("why does login fail?", opt, undefined)).toBe("grade");
-		expect(decide("login fails again!", opt, undefined)).toBe("grade");
+		const opt = { ...base, requireEndPunctuation: true };
+		expect(decide("fix the login bug.  \n", opt, undefined).kind).toBe("grade");
+		expect(decide("why does login fail?", opt, undefined).kind).toBe("grade");
+		expect(decide("login fails again!", opt, undefined).kind).toBe("grade");
 	});
 });
 

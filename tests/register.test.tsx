@@ -226,6 +226,62 @@ describe("trigger", () => {
 		expect(w.calls.length).toBe(0);
 	});
 
+	test("a /goal draft sends the objective alone to Jev", KEY, async ($, on) => {
+		const w = world(on, () => unauthorized);
+		await type(
+			$,
+			w,
+			"/goal fix the flaky login test and add a regression test",
+		);
+		await w.clock.advance(10000);
+		expect(w.calls.length).toBe(1);
+		expect(JSON.parse(w.calls[0]?.body ?? "{}").state.draft).toBe(
+			"fix the flaky login test and add a regression test",
+		);
+	});
+
+	test(
+		"a secret in a /goal objective is redacted in the request",
+		KEY,
+		async ($, on) => {
+			const w = world(on, () => unauthorized);
+			const secret = ["sk-", "or-v1-", "a".repeat(64)].join("");
+			await type($, w, `/goal fix the login using ${secret} as the key`);
+			await w.clock.advance(10000);
+			expect(w.calls.length).toBe(1);
+			const body = w.calls[0]?.body ?? "";
+			expect(body).not.toContain(secret);
+			expect(JSON.parse(body).state.draft).toContain("[REDACTED:");
+		},
+	);
+
+	test("a /loop that runs a command makes no call", KEY, async ($, on) => {
+		const w = world(on, () => unauthorized);
+		await type($, w, "/loop 5m /babysit-prs");
+		await w.clock.advance(10000);
+		expect(w.calls.length).toBe(0);
+	});
+
+	test(
+		"changing a /loop interval after a grade turns it stale and grades again",
+		KEY,
+		async ($, on) => {
+			const w = world(on, () => graded);
+			await type($, w, "/loop 5m check the deploy and report failures");
+			await w.clock.advance(10000);
+			expect(w.calls.length).toBe(1);
+			const text = "/loop 10m check the deploy and report failures";
+			await raise($).change({
+				text,
+				cursor: text.length,
+				origin: { kind: "history" },
+			});
+			expect((await band($))?.color).toBe("ansi256(245)");
+			await w.clock.advance(10000);
+			expect(w.calls.length).toBe(2);
+		},
+	);
+
 	test(
 		"a result for text no longer in the box is dropped, and the newest draft is graded next",
 		{ options: { openrouterApiKey: "test-key", timeoutMs: 60000 } },
@@ -556,6 +612,34 @@ describe("/jev", () => {
 			const out = await jev($);
 			expect(out.text).toContain("spend unreadable");
 			expect(out.text).not.toContain("spend today");
+		},
+	);
+
+	test(
+		"status says none when no command's prompt is graded",
+		{ options: { openrouterApiKey: "test-key", promptCommands: "" } },
+		async ($, on) => {
+			world(on, () => unauthorized);
+			const out = await jev($);
+			expect(out.text).toContain("prompt commands graded: none");
+		},
+	);
+
+	test(
+		"status lists the commands whose prompt is graded",
+		{
+			options: {
+				openrouterApiKey: "test-key",
+				promptCommands: "/goal,schedule",
+			},
+		},
+		async ($, on) => {
+			world(on, () => unauthorized);
+			const out = await jev($);
+			expect(out.text).not.toContain("//");
+			expect(out.text).toContain("/goal");
+			expect(out.text).toContain("/schedule");
+			expect(out.text).not.toContain("/loop");
 		},
 	);
 

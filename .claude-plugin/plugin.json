@@ -63,6 +63,12 @@
 			"title": "Require zero data retention",
 			"description": "Route only to OpenRouter endpoints with zero data retention.",
 			"default": true
+		},
+		"promptCommands": {
+			"type": "string",
+			"title": "Slash commands that take a prompt",
+			"description": "Comma-separated names without the slash. The text after them is graded. Empty turns this off.",
+			"default": "goal,loop"
 		}
 	}
 }

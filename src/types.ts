@@ -37,6 +37,8 @@ export type Config = {
 	priceUsdPerMTok: number;
 	timeoutMs: number;
 	requireZdr: boolean;
+	/** Slash commands (no slash, lower case) whose argument is a prompt. */
+	promptCommands: readonly string[];
 };
 
 /** The `state` object sent to Jev (spec 4.3). */

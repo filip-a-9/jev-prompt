@@ -11,6 +11,7 @@ export const DEFAULTS: Config = {
 	priceUsdPerMTok: 0.042,
 	timeoutMs: 3000,
 	requireZdr: true,
+	promptCommands: ["goal", "loop"],
 };
 
 const nonNegative = (v: unknown, fallback: number): number =>
@@ -24,6 +25,15 @@ const text = (v: unknown): string | undefined => {
 	const t = v.trim();
 	return t === "" ? undefined : t;
 };
+
+/** A comma-separated text option as a lower-case list; "" means none. */
+const list = (v: unknown, fallback: readonly string[]): readonly string[] =>
+	typeof v === "string"
+		? v
+				.split(",")
+				.map((s) => s.trim().replace(/^\/+/, "").toLowerCase())
+				.filter((s) => s !== "")
+		: fallback;
 
 /** The only place that reads plugin options. Never throws. */
 export function parseConfig(
@@ -52,5 +62,6 @@ export function parseConfig(
 		),
 		timeoutMs: nonNegative(options.timeoutMs, DEFAULTS.timeoutMs),
 		requireZdr: bool(options.requireZdr, DEFAULTS.requireZdr),
+		promptCommands: list(options.promptCommands, DEFAULTS.promptCommands),
 	};
 }

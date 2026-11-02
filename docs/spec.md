@@ -126,8 +126,19 @@ Jev via OpenRouter:
 
 ### 4.2 Skip rules (no API call)
 
-- `text.trim().length < minChars` (10): hide the band.
-- The draft starts with `/` (slash command) or `!` (bash mode).
+- `text.trim().length < minChars` (10): hide the band. This and the
+  punctuation rule apply to the draft to grade (see next item).
+- The draft starts with `/` (slash command) or `!` (bash mode), except a
+  command listed in `promptCommands` (default `goal,loop`, matched
+  case-insensitively and followed by whitespace). Then the argument is graded
+  and sent to Jev as `state.draft`; `/loop` first drops a leading interval
+  (`5m`, `2h`, `30s`, `1d`; only a bare number plus `s`, `m`, `h` or `d`, so
+  `5min` stays in the draft). If nothing is left, the band hides; so it does
+  when what `/loop` would run starts with `/` (`/loop 5m /babysit-prs`). For
+  any other listed command a leading `/` is part of the prompt
+  (`/goal /tmp/x.ts is broken` grades). Entries in the list may carry a
+  leading `/`, which is dropped. The cache and stale checks keep
+  comparing the full box text, so editing the command or interval is an edit.
 - The text equals the last graded text: re-show the cached grade.
 - Grading is paused (`/jev off`) or no API key is set (band shows
   `jev: no API key, see /jev`, once per session).
@@ -308,6 +319,8 @@ Starting weights (to be calibrated, section 6):
 - `/jev`: status (on/off, today's spend against the cap, model) and the last
   grade's full breakdown: every dimension's score, weight and confidence, plus
   the task-type probabilities.
+- The status also has a `prompt commands graded: /goal, /loop` line: the
+  `promptCommands` list, or `none` when it is empty.
 - `/jev on` and `/jev off`: session toggle, kept in `$.state`. `on` starts the
   idle wait for a draft already in the box.
 
@@ -325,6 +338,7 @@ Starting weights (to be calibrated, section 6):
 | `priceUsdPerMTok`       | number            | 0.042               | used for the pre-call estimate only                                                    |
 | `timeoutMs`             | number            | 3000                |                                                                                        |
 | `requireZdr`            | boolean           | true                | send `provider: { zdr: true }`: only zero-data-retention endpoints may serve the call  |
+| `promptCommands`        | string            | `goal,loop`         | comma-separated slash commands (no slash) whose argument is graded; empty = none (4.2) |
 
 `src/config.ts` validates these into one typed object. No other module reads
 `options`.

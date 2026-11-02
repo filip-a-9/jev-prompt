@@ -1,5 +1,7 @@
 // When to grade (spec 4.1, 4.2). No I/O: the caller passes the clock in.
 
+import type { Config } from "./types";
+
 export type Timer = { cancel: () => void };
 export type Schedule = (ms: number, fn: () => void) => Timer;
 
@@ -25,20 +27,55 @@ export function createDebounce() {
 	};
 }
 
-export type Decision = "hide" | "wait" | "cached" | "grade";
+export type Decision = {
+	kind: "hide" | "wait" | "cached" | "grade";
+	/** What goes to Jev: the box text, or the prompt inside a command. */
+	draft: string;
+};
 
-/** What to do with the box text when the idle wait ends. */
+type Options = Pick<
+	Config,
+	"minChars" | "requireEndPunctuation" | "promptCommands"
+>;
+
+/** The prompt inside a prompt-taking slash command; undefined if none. */
+function commandPrompt(
+	trimmed: string,
+	promptCommands: readonly string[],
+): string | undefined {
+	const m = /^\/(\S+)\s+([\s\S]*)$/.exec(trimmed);
+	if (!m?.[1] || !promptCommands.includes(m[1].toLowerCase())) return undefined;
+	const rest = m[2] ?? "";
+	if (m[1].toLowerCase() !== "loop") return rest;
+	// A loop may run another command: that is not a prompt.
+	const prompt = rest.replace(/^\d+[smhd](\s+|$)/, "");
+	return prompt.startsWith("/") ? undefined : prompt;
+}
+
+/**
+ * What to do with the box text when the idle wait ends. The length and
+ * punctuation rules apply to the draft; the cache compares the full text.
+ */
 export function decide(
 	text: string,
-	options: { minChars: number; requireEndPunctuation: boolean },
+	options: Options,
 	lastGradedText: string | undefined,
 ): Decision {
 	const trimmed = text.trim();
-	if (trimmed.length < options.minChars) return "hide";
-	if (trimmed.startsWith("/") || trimmed.startsWith("!")) return "hide";
-	if (options.requireEndPunctuation && !/[.?!]$/.test(trimmed)) return "wait";
-	if (text === lastGradedText) return "cached";
-	return "grade";
+	const hide: Decision = { kind: "hide", draft: "" };
+	let draft = text;
+	if (trimmed.startsWith("/")) {
+		const prompt = commandPrompt(trimmed, options.promptCommands);
+		if (prompt === undefined) return hide;
+		draft = prompt;
+	} else if (trimmed.startsWith("!")) return hide;
+	const body = draft.trim();
+	if (body.length < options.minChars) return hide;
+	if (options.requireEndPunctuation && !/[.?!]$/.test(body)) {
+		return { kind: "wait", draft };
+	}
+	if (text === lastGradedText) return { kind: "cached", draft };
+	return { kind: "grade", draft };
 }
 
 /**
