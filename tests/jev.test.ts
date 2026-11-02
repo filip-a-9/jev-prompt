@@ -1,6 +1,13 @@
 import { describe, expect, test } from "claude-code/testing";
 import { DEFAULTS } from "../src/config";
-import { type Io, jevCall, loadSpend, SPEND_KEY } from "../src/jev";
+import {
+	type Io,
+	jevCall,
+	type Ledger,
+	loadSpend,
+	newLedger,
+	SPEND_KEY,
+} from "../src/jev";
 import { QUESTIONS } from "../src/rubric";
 import type { Config, JevState, Spend } from "../src/types";
 import { badKey } from "./fixtures/bad-key";
@@ -29,7 +36,8 @@ const config = (over: Partial<Config> = {}): Config => ({
 type Reply =
 	| { status: number; body: unknown }
 	| { status: number; text: string }
-	| "reject";
+	| "reject"
+	| "null";
 
 const textOf = (r: { body: unknown } | { text: string }) =>
 	"text" in r ? r.text : JSON.stringify(r.body);
@@ -47,11 +55,21 @@ function world(
 		reply?: Reply;
 		/** answer only after this many ms of mocked time */
 		delayMs?: number;
+		/** runs when a request goes out, before it is answered */
+		onFetch?: () => void;
 	} = {},
 ) {
+	const fail = {
+		get: false,
+		set: false,
+		now: false,
+		after: false,
+		log: false,
+	};
 	let now = opts.now ?? NOON;
 	const timers: { at: number; fn: () => void; live: boolean }[] = [];
 	const after = (ms: number, fn: () => void) => {
+		if (fail.after) throw new Error("timers unavailable");
 		const t = { at: now + ms, fn, live: true };
 		timers.push(t);
 		return {
@@ -89,10 +107,13 @@ function world(
 	const io: Io = {
 		fetch: async (url, init) => {
 			requests.push({ url, init: { ...init } });
+			opts.onFetch?.();
 			if (opts.delayMs !== undefined)
 				await new Promise<void>((r) => after(opts.delayMs as number, r));
 			const reply = opts.reply ?? { status: 200, body: {} };
 			if (reply === "reject") throw new Error("socket hang up");
+			// A fetch that answers with nothing (outside the Io type on purpose).
+			if (reply === "null") return null as never;
 			return {
 				status: reply.status,
 				ok: reply.status >= 200 && reply.status < 300,
@@ -100,16 +121,22 @@ function world(
 				text: textOf(reply),
 			};
 		},
-		now: async () => now,
+		now: async () => {
+			if (fail.now) throw new Error("clock unavailable");
+			return now;
+		},
 		after,
 		storeGet: async (key) => {
+			if (fail.get) throw new Error("store unreadable");
 			const v = store.get(key);
 			return v === undefined ? undefined : JSON.parse(v);
 		},
 		storeSet: async (key, value) => {
+			if (fail.set) throw new Error("store unwritable");
 			store.set(key, JSON.stringify(value));
 		},
 		log: (text) => {
+			if (fail.log) throw new Error("log unavailable");
 			logs.push(text);
 		},
 	};
@@ -117,7 +144,7 @@ function world(
 		const v = store.get(SPEND_KEY);
 		return v === undefined ? undefined : JSON.parse(v);
 	};
-	return { io, clock, requests, logs, stored };
+	return { io, clock, requests, logs, stored, fail };
 }
 
 const bodyOf = (r: { init: Record<string, unknown> }) =>
@@ -127,7 +154,7 @@ const bytes = (s: string) => new TextEncoder().encode(s).length;
 describe("budget gate", () => {
 	test("a call within both budgets goes out once", async () => {
 		const w = world();
-		await jevCall(w.io, config(), STATE);
+		await jevCall(w.io, config(), STATE, newLedger());
 		expect(w.requests).toHaveLength(1);
 	});
 
@@ -140,7 +167,9 @@ describe("budget gate", () => {
 				monthUsd: 0.1,
 			},
 		});
-		expect(await jevCall(w.io, config(), STATE)).toEqual({ kind: "budget" });
+		expect(await jevCall(w.io, config(), STATE, newLedger())).toEqual({
+			kind: "budget",
+		});
 		expect(w.requests).toHaveLength(0);
 	});
 
@@ -148,14 +177,16 @@ describe("budget gate", () => {
 		const w = world({
 			spend: { day: "2026-11-02", dayUsd: 0, month: "2026-11", monthUsd: 1.65 },
 		});
-		expect(await jevCall(w.io, config(), STATE)).toEqual({ kind: "budget" });
+		expect(await jevCall(w.io, config(), STATE, newLedger())).toEqual({
+			kind: "budget",
+		});
 		expect(w.requests).toHaveLength(0);
 	});
 
 	test("the estimate counts: a call that would cross the daily cap is refused, one that fits is not", async () => {
 		// Probe the real request size first, then place the cap 1 byte-worth either side.
 		const probe = world();
-		await jevCall(probe.io, config(), STATE);
+		await jevCall(probe.io, config(), STATE, newLedger());
 		const first = probe.requests[0];
 		if (!first) throw new Error("probe made no request");
 		const estimate = (bytes(String(first.init.body)) / 3) * (0.042 / 1e6);
@@ -168,7 +199,9 @@ describe("budget gate", () => {
 				monthUsd: 0,
 			},
 		});
-		expect(await jevCall(over.io, config(), STATE)).toEqual({ kind: "budget" });
+		expect(await jevCall(over.io, config(), STATE, newLedger())).toEqual({
+			kind: "budget",
+		});
 		expect(over.requests).toHaveLength(0);
 
 		const fits = world({
@@ -179,13 +212,13 @@ describe("budget gate", () => {
 				monthUsd: 0,
 			},
 		});
-		await jevCall(fits.io, config(), STATE);
+		await jevCall(fits.io, config(), STATE, newLedger());
 		expect(fits.requests).toHaveLength(1);
 	});
 
 	test("the estimate counts against the monthly cap too", async () => {
 		const probe = world();
-		await jevCall(probe.io, config(), STATE);
+		await jevCall(probe.io, config(), STATE, newLedger());
 		const first = probe.requests[0];
 		if (!first) throw new Error("probe made no request");
 		const estimate = (bytes(String(first.init.body)) / 3) * (0.042 / 1e6);
@@ -197,7 +230,9 @@ describe("budget gate", () => {
 				monthUsd: 1.65 - estimate * 0.9,
 			},
 		});
-		expect(await jevCall(w.io, config(), STATE)).toEqual({ kind: "budget" });
+		expect(await jevCall(w.io, config(), STATE, newLedger())).toEqual({
+			kind: "budget",
+		});
 		expect(w.requests).toHaveLength(0);
 	});
 });
@@ -208,7 +243,7 @@ describe("stored totals", () => {
 			spend: { day: "2026-11-01", dayUsd: 5, month: "2026-11", monthUsd: 0.5 },
 			reply: { status: 200, body: { usage: { cost: 0.001 } } },
 		});
-		await jevCall(w.io, config(), STATE);
+		await jevCall(w.io, config(), STATE, newLedger());
 		expect(w.requests).toHaveLength(1);
 		const s = w.stored() as Spend;
 		expect(s.day).toBe("2026-11-02");
@@ -222,7 +257,7 @@ describe("stored totals", () => {
 			spend: { day: "2026-10-02", dayUsd: 5, month: "2026-10", monthUsd: 50 },
 			reply: { status: 200, body: { usage: { cost: 0.001 } } },
 		});
-		await jevCall(w.io, config(), STATE);
+		await jevCall(w.io, config(), STATE, newLedger());
 		expect(w.requests).toHaveLength(1);
 		const s = w.stored() as Spend;
 		expect(s).toEqual({
@@ -230,6 +265,7 @@ describe("stored totals", () => {
 			dayUsd: 0.001,
 			month: "2026-11",
 			monthUsd: 0.001,
+			pending: {},
 		});
 	});
 
@@ -238,7 +274,7 @@ describe("stored totals", () => {
 			now: LATE_NEW_YEAR_EVE,
 			reply: { status: 200, body: { usage: { cost: 0.002 } } },
 		});
-		await jevCall(w.io, config(), STATE);
+		await jevCall(w.io, config(), STATE, newLedger());
 		const s = w.stored() as Spend;
 		expect(s.day).toBe("2026-12-31");
 		expect(s.month).toBe("2026-12");
@@ -260,7 +296,7 @@ describe("stored totals", () => {
 				spend: junk,
 				reply: { status: 200, body: { usage: { cost: 0.001 } } },
 			});
-			await jevCall(w.io, config(), STATE);
+			await jevCall(w.io, config(), STATE, newLedger());
 			expect(w.requests).toHaveLength(1);
 			const s = w.stored() as Spend;
 			expect(s.dayUsd).toBe(0.001);
@@ -284,6 +320,7 @@ describe("loadSpend", () => {
 			dayUsd: 0.03,
 			month: "2026-11",
 			monthUsd: 0.4,
+			pending: {},
 		});
 	});
 
@@ -301,6 +338,7 @@ describe("loadSpend", () => {
 			dayUsd: 0,
 			month: "2026-11",
 			monthUsd: 0.4,
+			pending: {},
 		});
 	});
 
@@ -318,6 +356,7 @@ describe("loadSpend", () => {
 			dayUsd: 0,
 			month: "2026-11",
 			monthUsd: 0,
+			pending: {},
 		});
 	});
 
@@ -328,10 +367,202 @@ describe("loadSpend", () => {
 	});
 });
 
+describe("a broken store fails closed", () => {
+	test("an unreadable store is budget, and no request goes out", async () => {
+		const w = world();
+		w.fail.get = true;
+		expect(await jevCall(w.io, config(), STATE, newLedger())).toEqual({
+			kind: "budget",
+		});
+		expect(w.requests).toHaveLength(0);
+	});
+
+	test("a reservation that cannot be written is budget, and no request goes out", async () => {
+		const w = world();
+		w.fail.set = true;
+		expect(await jevCall(w.io, config(), STATE, newLedger())).toEqual({
+			kind: "budget",
+		});
+		expect(w.requests).toHaveLength(0);
+	});
+
+	test("a cost that could not be written still counts, and is written with the next one", async () => {
+		const ledger: Ledger = newLedger();
+		const ref: { w?: ReturnType<typeof world> } = {};
+		const w = world({
+			reply: { status: 200, body: { usage: { cost: 0.05 } } },
+			onFetch: () => {
+				if (ref.w) ref.w.fail.set = true; // the write after the call fails
+			},
+		});
+		ref.w = w;
+		const cap = config({ dailyBudgetUsd: 0.05, monthlyBudgetUsd: 10 });
+		expect((await jevCall(w.io, cap, STATE, ledger)).kind).not.toBe("budget");
+		w.fail.set = false;
+
+		// The store knows nothing of the 0.05, the session ledger does.
+		expect(await jevCall(w.io, cap, STATE, ledger)).toEqual({ kind: "budget" });
+		expect(w.requests).toHaveLength(1);
+
+		const wide = config({ dailyBudgetUsd: 10, monthlyBudgetUsd: 10 });
+		const again = world({
+			reply: { status: 200, body: { usage: { cost: 0.25 } } },
+		});
+		await jevCall(again.io, wide, STATE, ledger);
+		expect((again.stored() as Spend).dayUsd).toBe(0.3);
+	});
+
+	test("a clock that fails while the call settles does not make jevCall reject, and the cost still counts for its own day", async () => {
+		const ledger = newLedger();
+		const ref: { w?: ReturnType<typeof world> } = {};
+		// Not today's real date, so only the reservation's own timestamp can key it.
+		const w = world({
+			now: LATE_NEW_YEAR_EVE,
+			reply: { status: 200, body: { usage: { cost: 0.05 } } },
+			onFetch: () => {
+				if (ref.w) ref.w.fail.now = true;
+			},
+		});
+		ref.w = w;
+		const cap = config({ dailyBudgetUsd: 0.05, monthlyBudgetUsd: 10 });
+		const out = await jevCall(w.io, cap, STATE, ledger);
+		expect(out.kind).not.toBe("budget");
+		w.fail.now = false;
+		expect(await jevCall(w.io, cap, STATE, ledger)).toEqual({ kind: "budget" });
+		expect(w.requests).toHaveLength(1);
+	});
+
+	test("garbled stored data still reads as 0, not as a failure", async () => {
+		const w = world({ spend: "garbage" });
+		await jevCall(w.io, config(), STATE, newLedger());
+		expect(w.requests).toHaveLength(1);
+	});
+});
+
+describe("jevCall never rejects", () => {
+	test("a clock that fails before anything is reserved: budget, no request", async () => {
+		const w = world();
+		w.fail.now = true;
+		expect(await jevCall(w.io, config(), STATE, newLedger())).toEqual({
+			kind: "budget",
+		});
+		expect(w.requests).toHaveLength(0);
+	});
+
+	test("timers that throw after the reservation: offline", async () => {
+		const w = world();
+		w.fail.after = true;
+		expect(await jevCall(w.io, config(), STATE, newLedger())).toEqual({
+			kind: "offline",
+		});
+	});
+
+	test("a log that throws on an unexpected answer: still unexpected", async () => {
+		const w = world({ reply: { status: 500, text: "boom" } });
+		w.fail.log = true;
+		expect((await jevCall(w.io, config(), STATE, newLedger())).kind).toBe(
+			"unexpected",
+		);
+	});
+
+	test("a fetch that resolves to nothing: offline, and the reservation is settled", async () => {
+		const w = world({ reply: "null" });
+		expect(await jevCall(w.io, config(), STATE, newLedger())).toEqual({
+			kind: "offline",
+		});
+		expect((w.stored() as Spend).pending).toEqual({});
+	});
+});
+
+describe("pending reservations", () => {
+	const old = (extra: Record<string, unknown> = {}) => ({
+		day: "2026-11-02",
+		dayUsd: 0.5,
+		month: "2026-11",
+		monthUsd: 1,
+		...extra,
+	});
+
+	test("a stored total without a pending map (the old shape) keeps its running total", async () => {
+		const w = world({
+			spend: old(),
+			reply: { status: 200, body: { usage: { cost: 0.25 } } },
+		});
+		expect(await loadSpend(w.io)).toEqual({
+			day: "2026-11-02",
+			dayUsd: 0.5,
+			month: "2026-11",
+			monthUsd: 1,
+			pending: {},
+		});
+		await jevCall(
+			w.io,
+			config({ dailyBudgetUsd: 10, monthlyBudgetUsd: 10 }),
+			STATE,
+			newLedger(),
+		);
+		const s = w.stored() as Spend;
+		expect(s.dayUsd).toBe(0.75);
+		expect(s.monthUsd).toBe(1.25);
+		expect(s.pending).toEqual({});
+	});
+
+	test("a recent reservation from another request counts against the cap", async () => {
+		const w = world({
+			spend: old({
+				dayUsd: 0,
+				monthUsd: 0,
+				pending: { other: { usd: 0.1, at: NOON - 1000 } },
+			}),
+		});
+		expect(await jevCall(w.io, config(), STATE, newLedger())).toEqual({
+			kind: "budget",
+		});
+		expect(w.requests).toHaveLength(0);
+	});
+
+	test("a reservation dated far in the future (the clock went back) is dropped, not counted", async () => {
+		const w = world({
+			spend: old({
+				dayUsd: 0,
+				monthUsd: 0,
+				pending: { future: { usd: 0.1, at: NOON + 11 * 60_000 } },
+			}),
+		});
+		await jevCall(w.io, config(), STATE, newLedger());
+		expect(w.requests).toHaveLength(1);
+	});
+
+	test("a reservation a little in the future still counts", async () => {
+		const w = world({
+			spend: old({
+				dayUsd: 0,
+				monthUsd: 0,
+				pending: { skew: { usd: 0.1, at: NOON + 1000 } },
+			}),
+		});
+		expect(await jevCall(w.io, config(), STATE, newLedger())).toEqual({
+			kind: "budget",
+		});
+	});
+
+	test("a reservation older than ten minutes is dropped, not counted", async () => {
+		const w = world({
+			spend: old({
+				dayUsd: 0,
+				monthUsd: 0,
+				pending: { stale: { usd: 0.1, at: NOON - 11 * 60_000 } },
+			}),
+		});
+		await jevCall(w.io, config(), STATE, newLedger());
+		expect(w.requests).toHaveLength(1);
+	});
+});
+
 describe("request", () => {
 	test("POSTs to the decisions endpoint with bearer key and JSON content type", async () => {
 		const w = world();
-		await jevCall(w.io, config({ apiKey: "sk-abc" }), STATE);
+		await jevCall(w.io, config({ apiKey: "sk-abc" }), STATE, newLedger());
 		const r = w.requests[0];
 		expect(r?.url).toBe("https://openrouter.ai/api/alpha/decisions");
 		expect(r?.init.method).toBe("POST");
@@ -343,7 +574,12 @@ describe("request", () => {
 
 	test("body carries model, state and the rubric questions", async () => {
 		const w = world();
-		await jevCall(w.io, config({ model: "typesafe/jev-9.9" }), STATE);
+		await jevCall(
+			w.io,
+			config({ model: "typesafe/jev-9.9" }),
+			STATE,
+			newLedger(),
+		);
 		const b = bodyOf(w.requests[0] as { init: Record<string, unknown> });
 		expect(b.model).toBe("typesafe/jev-9.9");
 		expect(b.state).toEqual(STATE);
@@ -352,21 +588,26 @@ describe("request", () => {
 
 	test("requireZdr on: body asks for zero data retention", async () => {
 		const w = world();
-		await jevCall(w.io, config({ requireZdr: true }), STATE);
+		await jevCall(w.io, config({ requireZdr: true }), STATE, newLedger());
 		const b = bodyOf(w.requests[0] as { init: Record<string, unknown> });
 		expect(b.provider).toEqual({ zdr: true });
 	});
 
 	test("requireZdr off: body has no provider field", async () => {
 		const w = world();
-		await jevCall(w.io, config({ requireZdr: false }), STATE);
+		await jevCall(w.io, config({ requireZdr: false }), STATE, newLedger());
 		const b = bodyOf(w.requests[0] as { init: Record<string, unknown> });
 		expect("provider" in b).toBe(false);
 	});
 
 	test("no api key: no request, key-rejected, nothing recorded", async () => {
 		const w = world();
-		const out = await jevCall(w.io, config({ apiKey: undefined }), STATE);
+		const out = await jevCall(
+			w.io,
+			config({ apiKey: undefined }),
+			STATE,
+			newLedger(),
+		);
 		expect(out).toEqual({ kind: "key-rejected" });
 		expect(w.requests).toHaveLength(0);
 		expect(w.stored()).toBeUndefined();
@@ -388,6 +629,7 @@ describe("recording the cost", () => {
 			w.io,
 			config({ dailyBudgetUsd: 10, monthlyBudgetUsd: 10 }),
 			STATE,
+			newLedger(),
 		);
 		const s = w.stored() as Spend;
 		expect(s.dayUsd).toBe(0.26);
@@ -403,7 +645,7 @@ describe("recording the cost", () => {
 			const w = world({
 				reply: { status: 200, body: usage === undefined ? {} : { usage } },
 			});
-			await jevCall(w.io, config(), STATE);
+			await jevCall(w.io, config(), STATE, newLedger());
 			const sent = String(
 				(w.requests[0] as { init: Record<string, unknown> }).init.body,
 			);
@@ -418,14 +660,14 @@ describe("recording the cost", () => {
 		const w = world({
 			reply: { status: 500, body: { usage: { cost: 0.003 } } },
 		});
-		await jevCall(w.io, config(), STATE);
+		await jevCall(w.io, config(), STATE, newLedger());
 		const s = w.stored() as Spend;
 		expect(s.dayUsd).toBe(0.003);
 	});
 
 	test("a network failure records the estimate and is offline", async () => {
 		const w = world({ reply: "reject" });
-		const out = await jevCall(w.io, config(), STATE);
+		const out = await jevCall(w.io, config(), STATE, newLedger());
 		expect(out).toEqual({ kind: "offline" });
 		const sent = String(
 			(w.requests[0] as { init: Record<string, unknown> }).init.body,
@@ -443,7 +685,12 @@ describe("timeout", () => {
 			reply: { status: 200, body: { usage: { cost: 0.004 } } },
 		});
 		let outcome: unknown;
-		const call = jevCall(w.io, config({ timeoutMs: 3000 }), STATE).then((o) => {
+		const call = jevCall(
+			w.io,
+			config({ timeoutMs: 3000 }),
+			STATE,
+			newLedger(),
+		).then((o) => {
 			outcome = o;
 		});
 		await w.clock.advance(2999);
@@ -451,12 +698,38 @@ describe("timeout", () => {
 		await w.clock.advance(1);
 		await call;
 		expect(outcome).toEqual({ kind: "offline" });
-		expect(w.stored()).toBeUndefined();
+		// Nothing is settled yet: only the reserved estimate is on file.
+		const mid = w.stored() as Spend;
+		expect(mid.dayUsd).toBe(0);
+		expect(Object.keys(mid.pending)).toHaveLength(1);
 
 		await w.clock.advance(2000);
 		const s = w.stored() as Spend;
 		expect(s.dayUsd).toBe(0.004);
 		expect(s.monthUsd).toBe(0.004);
+		expect(s.pending).toEqual({});
+	});
+
+	test("a second call after a timeout is gated on the first one's estimate", async () => {
+		const probe = world();
+		await jevCall(probe.io, config(), STATE, newLedger());
+		const first = probe.requests[0];
+		if (!first) throw new Error("probe made no request");
+		const estimate = (bytes(String(first.init.body)) / 3) * (0.042 / 1e6);
+
+		// Room for one estimate, not for two.
+		const cfg = config({ timeoutMs: 3000, dailyBudgetUsd: estimate * 1.5 });
+		const w = world({
+			delayMs: 5000,
+			reply: { status: 200, body: { usage: { cost: 0.0000001 } } },
+		});
+		const ledger = newLedger();
+		const call = jevCall(w.io, cfg, STATE, ledger);
+		await w.clock.advance(3000);
+		expect(await call).toEqual({ kind: "offline" });
+
+		expect(await jevCall(w.io, cfg, STATE, ledger)).toEqual({ kind: "budget" });
+		expect(w.requests).toHaveLength(1);
 	});
 
 	test("a response inside timeoutMs wins the race", async () => {
@@ -464,7 +737,7 @@ describe("timeout", () => {
 			delayMs: 1000,
 			reply: { status: 429, body: {} },
 		});
-		const call = jevCall(w.io, config({ timeoutMs: 3000 }), STATE);
+		const call = jevCall(w.io, config({ timeoutMs: 3000 }), STATE, newLedger());
 		await w.clock.advance(1000);
 		expect(await call).toEqual({ kind: "rate-limited" });
 	});
@@ -476,7 +749,7 @@ describe("status mapping", () => {
 			const w = world({
 				reply: { status, body: { error: { code: status, message: "x" } } },
 			});
-			expect(await jevCall(w.io, config(), STATE)).toEqual({
+			expect(await jevCall(w.io, config(), STATE, newLedger())).toEqual({
 				kind: "key-rejected",
 			});
 		});
@@ -486,7 +759,7 @@ describe("status mapping", () => {
 		const w = world({
 			reply: { status: 429, body: { error: { code: 429, message: "x" } } },
 		});
-		expect(await jevCall(w.io, config(), STATE)).toEqual({
+		expect(await jevCall(w.io, config(), STATE, newLedger())).toEqual({
 			kind: "rate-limited",
 		});
 	});
@@ -504,7 +777,7 @@ describe("unexpected responses", () => {
 	] as const) {
 		test(`${name}: unexpected with the full body, also logged`, async () => {
 			const w = world({ reply });
-			expect(await jevCall(w.io, config(), STATE)).toEqual({
+			expect(await jevCall(w.io, config(), STATE, newLedger())).toEqual({
 				kind: "unexpected",
 				body: reply.text,
 			});
@@ -526,7 +799,7 @@ describe("answers from captured responses", () => {
 	] as const) {
 		test(`${name}: ok with the answers and the billed cost`, async () => {
 			const w = world({ reply: fx as Fixture });
-			const out = await jevCall(w.io, config(), STATE);
+			const out = await jevCall(w.io, config(), STATE, newLedger());
 			if (out.kind !== "ok") throw new Error(`got ${out.kind}`);
 			expect(out.costUsd).toBe(cost);
 			expect(out.answers.task_type.choice).toBe(choice);
@@ -554,7 +827,7 @@ describe("answers from captured responses", () => {
 
 	test("only the declared fields are returned: no legend", async () => {
 		const w = world({ reply: bugfixZdr as Fixture });
-		const out = await jevCall(w.io, config(), STATE);
+		const out = await jevCall(w.io, config(), STATE, newLedger());
 		if (out.kind !== "ok") throw new Error(`got ${out.kind}`);
 		expect(Object.keys(out.answers.goal).sort()).toEqual([
 			"confidence",
@@ -573,14 +846,14 @@ describe("answers from captured responses", () => {
 
 	test("a confidence of 0 is valid", async () => {
 		const w = world({ reply: bugfixZdr as Fixture });
-		const out = await jevCall(w.io, config(), STATE);
+		const out = await jevCall(w.io, config(), STATE, newLedger());
 		if (out.kind !== "ok") throw new Error(`got ${out.kind}`);
 		expect(out.answers.reply_fit.confidence).toBe(0);
 	});
 
 	test("bad-key fixture is key-rejected", async () => {
 		const w = world({ reply: badKey as Fixture });
-		expect(await jevCall(w.io, config(), STATE)).toEqual({
+		expect(await jevCall(w.io, config(), STATE, newLedger())).toEqual({
 			kind: "key-rejected",
 		});
 	});
@@ -626,7 +899,7 @@ describe("answers from captured responses", () => {
 			mutate(body);
 			const text = JSON.stringify(body);
 			const w = world({ reply: { status: 200, text } });
-			expect(await jevCall(w.io, config(), STATE)).toEqual({
+			expect(await jevCall(w.io, config(), STATE, newLedger())).toEqual({
 				kind: "unexpected",
 				body: text,
 			});
@@ -641,7 +914,7 @@ describe("answers from captured responses", () => {
 		body.answers.goal.score = 3.004;
 		body.answers.focus.score = -0.004;
 		const w = world({ reply: { status: 200, text: JSON.stringify(body) } });
-		const out = await jevCall(w.io, config(), STATE);
+		const out = await jevCall(w.io, config(), STATE, newLedger());
 		if (out.kind !== "ok") throw new Error(`got ${out.kind}`);
 		expect(out.answers.goal.score).toBe(3);
 		expect(out.answers.focus.score).toBe(0);
@@ -662,7 +935,7 @@ describe("zdr refusal", () => {
 	]) {
 		test(`404 saying "${message.slice(0, 24)}..." is zdr-unavailable`, async () => {
 			const w = world({ reply: refusal(404, message) });
-			expect(await jevCall(w.io, config(), STATE)).toEqual({
+			expect(await jevCall(w.io, config(), STATE, newLedger())).toEqual({
 				kind: "zdr-unavailable",
 			});
 		});
@@ -670,11 +943,15 @@ describe("zdr refusal", () => {
 
 	test("a 404 about something else stays unexpected", async () => {
 		const w = world({ reply: refusal(404, "Model not found") });
-		expect((await jevCall(w.io, config(), STATE)).kind).toBe("unexpected");
+		expect((await jevCall(w.io, config(), STATE, newLedger())).kind).toBe(
+			"unexpected",
+		);
 	});
 
 	test("the same words on another status stay unexpected", async () => {
 		const w = world({ reply: refusal(400, "data policy violation") });
-		expect((await jevCall(w.io, config(), STATE)).kind).toBe("unexpected");
+		expect((await jevCall(w.io, config(), STATE, newLedger())).kind).toBe(
+			"unexpected",
+		);
 	});
 });

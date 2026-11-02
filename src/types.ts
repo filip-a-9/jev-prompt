@@ -104,6 +104,11 @@ export type Spend = {
 	/** local month, YYYY-MM */
 	month: string;
 	monthUsd: number;
+	/**
+	 * Estimates reserved by calls still in flight, by request id, so a second
+	 * call sees them. Settled (removed) when the call lands.
+	 */
+	pending: Readonly<Record<string, { usd: number; at: number }>>;
 };
 
 /** Every outcome of one jevCall (spec 4.6, 4.11). */

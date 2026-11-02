@@ -71,6 +71,169 @@ describe("redact: one test per kind", () => {
 	});
 });
 
+describe("redact: quoted and header-style secrets", () => {
+	test("quoted JSON key names", () => {
+		expect(redact('{"password": "hunter2", "api_key": "abcd1234"}')).toBe(
+			"{[REDACTED:assignment], [REDACTED:assignment]}",
+		);
+	});
+	test("a quoted value with spaces is taken whole", () => {
+		expect(redact('password = "my secret phrase" next')).toBe(
+			"[REDACTED:assignment] next",
+		);
+	});
+	test("token: Bearer <value> hides the value too", () => {
+		expect(redact("token: Bearer abc.def end")).toBe(
+			"[REDACTED:assignment] end",
+		);
+	});
+	test("Authorization: Bearer and Basic headers", () => {
+		expect(redact("Authorization: Bearer abc123xyz")).toBe(
+			"[REDACTED:assignment]",
+		);
+		expect(redact("authorization: Basic dXNlcjpwdw==")).toBe(
+			"[REDACTED:assignment]",
+		);
+	});
+	test("aws_secret_access_key", () => {
+		expect(redact("aws_secret_access_key=wJalrXUtnFEMI")).toBe(
+			"[REDACTED:assignment]",
+		);
+	});
+	test("client_secret", () => {
+		expect(redact("client_secret=s3cr3tvalue")).toBe("[REDACTED:assignment]");
+	});
+	test("a colon value that is a filler word is prose, not a secret", () => {
+		expect(redact("password: hunter")).toBe("[REDACTED:assignment]");
+	});
+	test("an equals sign always redacts, even before a filler word", () => {
+		expect(redact("password=it")).toBe("[REDACTED:assignment]");
+	});
+});
+
+describe("redact: values that merely start with a filler word", () => {
+	const cases = [
+		["password: in-the-garden-42", "[REDACTED:assignment]"],
+		["secret: to-4f9a8c7d", "[REDACTED:assignment]"],
+		["api_key: be.9f8a7b6c", "[REDACTED:assignment]"],
+		["token: a/b+c9Xq==", "[REDACTED:assignment]"],
+		["the password: not-123456", "the [REDACTED:assignment]"],
+	] as const;
+	for (const [text, want] of cases) {
+		test(text, () => {
+			expect(redact(text)).toBe(want);
+		});
+	}
+});
+
+describe("redact: more assignment forms", () => {
+	test("Authorization with any scheme word", () => {
+		expect(redact("Authorization: Token ghp_abc end")).toBe(
+			"[REDACTED:assignment] end",
+		);
+	});
+	for (const key of ["SECRET_KEY", "DB_PASSWORD", "MY_API_TOKEN"]) {
+		test(`prefixed or suffixed key name ${key}`, () => {
+			expect(redact(`${key}=abc123 ok`)).toBe("[REDACTED:assignment] ok");
+		});
+	}
+	test("a backtick-quoted value is taken whole", () => {
+		expect(redact("password = `my pass` end")).toBe(
+			"[REDACTED:assignment] end",
+		);
+	});
+	test("escaped quotes inside a quoted value do not end it", () => {
+		expect(redact('password: "he said \\"hi\\" x" end')).toBe(
+			"[REDACTED:assignment] end",
+		);
+	});
+	test("a value never runs past a newline", () => {
+		expect(redact("token:\nnext line")).toBe("token:\nnext line");
+		expect(redact("password=\nnext")).toBe("password=\nnext");
+	});
+});
+
+describe("redact: cost", () => {
+	test("a very long word is scanned in reasonable time", () => {
+		const t = "a".repeat(30000);
+		const start = Date.now();
+		expect(redact(t)).toBe(t);
+		expect(Date.now() - start).toBeLessThan(1000);
+	});
+});
+
+describe("redact: values on the next, indented line", () => {
+	test("YAML style: an indented line after the colon is the value", () => {
+		expect(redact("password:\n  hunter2\nnext: line")).toBe(
+			"[REDACTED:assignment]\nnext: line",
+		);
+		expect(redact("token:\n\tabc")).toBe("[REDACTED:assignment]");
+	});
+	test("an unindented next line is not the value", () => {
+		expect(redact("token:\nnext line")).toBe("token:\nnext line");
+	});
+});
+
+describe("redact: more key spellings", () => {
+	const gone = [
+		["--password hunter2", "[REDACTED:assignment]"],
+		["--token x1 and", "[REDACTED:assignment] and"],
+		["--api-key x1", "[REDACTED:assignment]"],
+		["--password=x1", "--[REDACTED:assignment]"],
+		["SECRET-KEY=abc", "[REDACTED:assignment]"],
+		["x-auth-token: abc", "x-auth-[REDACTED:assignment]"],
+		["pwd=abc", "[REDACTED:assignment]"],
+		["passwd=abc", "[REDACTED:assignment]"],
+		["passwordHash: x", "[REDACTED:assignment]"],
+		["apiKey: x", "[REDACTED:assignment]"],
+		["clientSecret: x", "client[REDACTED:assignment]"],
+	] as const;
+	for (const [text, want] of gone) {
+		test(text, () => {
+			expect(redact(text)).toBe(want);
+		});
+	}
+});
+
+describe("redact: adversarial input stays fast", () => {
+	const n = 100_000;
+	const inputs: [string, string][] = [
+		["one long word", "A".repeat(n)],
+		["url scheme repeated", "a://b:".repeat(n / 6)],
+		["jwt head repeated", "eyJ".repeat(n / 3)],
+		["pem head repeated", "-----BEGIN ".repeat(n / 11)],
+		["open quote repeated", 'password="'.repeat(n / 10)],
+		["key then spaces", `password${" ".repeat(n)}`],
+		["keys joined", "secret_".repeat(n / 7)],
+		["sk repeated", "sk-".repeat(n / 3)],
+		["flag repeated", "--token ".repeat(n / 8)],
+		["short words joined", "a_".repeat(n / 2)],
+		["token and newline repeated", "token:\n ".repeat(n / 8)],
+		["authorization repeated", "authorization: ".repeat(n / 15)],
+		["github heads", "ghp_github_pat_xoxb-AKIA".repeat(n / 24)],
+		["colon spaces", `token:${" ".repeat(n)}x`],
+	];
+	for (const [name, text] of inputs) {
+		test(name, () => {
+			const start = Date.now();
+			redact(text);
+			expect(Date.now() - start).toBeLessThan(200);
+		});
+	}
+	test("user:pass@host still redacts", () => {
+		expect(redact("db postgres://user:pw123@host/x")).toBe(
+			"db [REDACTED:url-credentials]host/x",
+		);
+	});
+});
+
+describe("redact: jwt after a dash", () => {
+	test("a jwt glued to a hyphen is still redacted", () => {
+		const k = "ey" + "JhbGciOi.ey" + "JzdWIiOi.SflKxwRJ";
+		expect(redact(`a-${k}`)).toBe("a-[REDACTED:jwt]");
+	});
+});
+
 describe("redact: precedence", () => {
 	test("sk-ant- is labelled anthropic, not openai", () => {
 		const k = "sk-" + "ant-" + body(10);
@@ -98,6 +261,12 @@ describe("redact: left untouched", () => {
 		["file name", "edit file.ts please"],
 		["url without credentials", "see https://example.com/a:b now"],
 		["plain prose", "the token budget is large"],
+		["prose with a colon after token", "the token: it expires"],
+		["secretary is a word", "secretary: Jane"],
+		["tokenizer is a word", "tokenizer: bpe"],
+		["a flag in prose", "use --token to authenticate"],
+		["a flag naming a file", "--password-file path"],
+		["a flag followed by a flag", "--token --verbose"],
 	] as const;
 	for (const [name, text] of same) {
 		test(name, () => {

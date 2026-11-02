@@ -14,9 +14,10 @@ function world(
 	on: On,
 	reply: (call: Fetch) => Reply | Promise<Reply>,
 	messages: () => unknown[] = () => [],
+	withStore = true,
 ) {
 	const clock = mock.clock(on);
-	mock.store(on);
+	if (withStore) mock.store(on);
 	const calls: Fetch[] = [];
 	const logs: string[] = [];
 	const box = { text: "" };
@@ -456,6 +457,42 @@ describe("band", () => {
 	);
 });
 
+describe("after a reload", () => {
+	// A reload runs session.start again while the band atom keeps what the
+	// earlier run left in it, and the new run's own state knows nothing of it.
+	const start = ($: Engine) =>
+		$.session.start({ cwd: "/", surface: "terminal", isInteractive: true });
+
+	test(
+		"a grade left in the band is hidden when the session starts",
+		KEY,
+		async ($, on) => {
+			const w = world(on, () => graded);
+			on("session.start", (_, e) => ({ cwd: e.cwd }));
+			await type($, w, "fix the login bug in src/auth.ts");
+			await w.clock.advance(10000);
+			expect((await band($))?.text).toContain("bug fix");
+			await start($);
+			expect(await band($)).toBeUndefined();
+		},
+	);
+
+	test(
+		"grading... left in the band is hidden when the session starts",
+		KEY,
+		async ($, on) => {
+			const gate = held();
+			const w = world(on, () => gate.promise);
+			on("session.start", (_, e) => ({ cwd: e.cwd }));
+			await type($, w, "fix the login bug in src/auth.ts");
+			await w.clock.advance(10000);
+			expect((await band($))?.text).toContain("grading");
+			await start($);
+			expect(await band($)).toBeUndefined();
+		},
+	);
+});
+
 describe("/jev", () => {
 	test("without a key, status says the install screen asks for it", async ($, on) => {
 		world(on, () => unauthorized);
@@ -476,6 +513,49 @@ describe("/jev", () => {
 			await type($, w, " now");
 			await w.clock.advance(10000);
 			expect(w.calls.length).toBe(1);
+		},
+	);
+
+	test(
+		"on with a draft already in the box grades it after the idle time",
+		KEY,
+		async ($, on) => {
+			const w = world(on, () => unauthorized);
+			await type($, w, "fix the login bug in src/auth.ts");
+			await jev($, "off");
+			await w.clock.advance(10000);
+			await jev($, "on");
+			await w.clock.advance(9999);
+			expect(w.calls.length).toBe(0);
+			await w.clock.advance(1);
+			expect(w.calls.length).toBe(1);
+		},
+	);
+
+	test("on with an empty box makes no call", KEY, async ($, on) => {
+		const w = world(on, () => unauthorized);
+		await jev($, "off");
+		await jev($, "on");
+		await w.clock.advance(20000);
+		expect(w.calls.length).toBe(0);
+	});
+
+	test(
+		"status says so when the spend store cannot be read",
+		KEY,
+		async ($, on) => {
+			world(
+				on,
+				() => unauthorized,
+				() => [],
+				false,
+			);
+			on("store.get", () => {
+				throw new Error("store unreadable");
+			});
+			const out = await jev($);
+			expect(out.text).toContain("spend unreadable");
+			expect(out.text).not.toContain("spend today");
 		},
 	);
 

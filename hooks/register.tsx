@@ -15,7 +15,7 @@ import { bandLine } from "../src/band";
 import { DEFAULTS, parseConfig } from "../src/config";
 import { buildState, INSTRUCTION_PATHS } from "../src/context";
 import { gradeAnswers } from "../src/grade";
-import { type Io, jevCall, loadSpend } from "../src/jev";
+import { type Io, jevCall, loadSpend, newLedger } from "../src/jev";
 import { redactState } from "../src/redact";
 import { GAP_LABELS, TYPE_LABELS } from "../src/rubric";
 import { createDebounce, createSingleFlight, decide } from "../src/trigger";
@@ -41,6 +41,8 @@ const fresh = () => ({
 	instructions: undefined as { at: number; files: string[] } | undefined,
 	debounce: createDebounce(),
 	flight: createSingleFlight(),
+	/** Spend the store failed to take, kept so the cap still sees it. */
+	ledger: newLedger(),
 });
 let S = fresh();
 
@@ -121,7 +123,7 @@ async function grade($: EngineInterface, text: string): Promise<void> {
 			instructionFiles: await instructionFiles($),
 		}),
 	);
-	const out = await jevCall(ioOf($), S.config, state);
+	const out = await jevCall(ioOf($), S.config, state, S.ledger);
 	if (out.kind === "ok") {
 		S.lastGraded = { text, grade: gradeAnswers(out.answers) };
 	}
@@ -195,11 +197,13 @@ function edited($: EngineInterface, text: string): void {
 
 async function status($: EngineInterface): Promise<string> {
 	const c = S.config;
-	const spend = await loadSpend(ioOf($));
+	const spend = await loadSpend(ioOf($)).catch(() => undefined);
 	const lines = [
 		`jev: ${(await read($, paused)) ? "off" : "on"}  ·  model ${c.model}`,
-		`spend today ${usd(spend.dayUsd)} of ${usd(c.dailyBudgetUsd)}, ` +
-			`this month ${usd(spend.monthUsd)} of ${usd(c.monthlyBudgetUsd)}`,
+		spend
+			? `spend today ${usd(spend.dayUsd)} of ${usd(c.dailyBudgetUsd)}, ` +
+				`this month ${usd(spend.monthUsd)} of ${usd(c.monthlyBudgetUsd)}`
+			: "spend unreadable: the store failed, so grading is stopped",
 	];
 	if (!c.apiKey) {
 		lines.push(
@@ -248,6 +252,9 @@ export const register: Register = (on, options) => {
 	});
 
 	on("session.start", async ($, e, next) => {
+		// The band atom survives a reload, this module's state does not: whatever
+		// the earlier run left there would never be updated again.
+		show($, HIDDEN);
 		await $.command.register({
 			name: "jev",
 			description: "jev-prompt: grading status, or turn it on/off",
@@ -267,6 +274,10 @@ export const register: Register = (on, options) => {
 		}
 		if (arg === "on") {
 			await update($, paused, () => false);
+			// A draft already in the box would wait for an edit that may never
+			// come: start its idle wait now (onIdle reads the box when it fires).
+			S.debounce.cancel();
+			edited($, (await $.prompt.read()).text);
 			return { text: "jev: grading on" };
 		}
 		return { text: await status($) };

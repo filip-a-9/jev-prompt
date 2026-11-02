@@ -119,6 +119,8 @@ Jev via OpenRouter:
   late is still counted against the budget.
 - When the result arrives, it is applied only if `$.prompt.read().text` still
   equals the text that was graded. Otherwise it is dropped.
+- `session.start` hides the band: the band atom survives a reload, the
+  module state does not, so a leftover grade or "grading…" would never update.
 - `prompt.submit` cancels the timer, drops any waiting grade, clears the band, and
   passes the event on unchanged.
 
@@ -166,7 +168,25 @@ match is replaced with `[REDACTED:<kind>]`:
 - PEM blocks: `-----BEGIN … PRIVATE KEY-----` up to the matching END line,
   or to the end of the field when truncation cut the END line off
 - JWTs: `eyJ…\.eyJ…\.…`
-- assignments: `(password|passwd|secret|token|api[_-]?key)\s*[:=]\s*\S+`
+- assignments: a key name (`password`, `passwd`, `pwd`, `secret`, `token`,
+  `api[_-]?key`, `authorization`), optionally quoted and joined to other
+  words: before by `_` (`DB_PASSWORD`, `aws_secret_access_key`), after by `_`,
+  `-` or a capital (`SECRET_KEY`, `secret-key`, `passwordHash`). `secretary`
+  and `tokenizer` do not match. Then `:` or `=`, then the value: on the same
+  line or on an indented line below (YAML); an unindented next line is never
+  the value. A value is a quoted string (`"`, `'` or a backtick, with `\"`
+  escapes) taken whole, `Bearer`/`Basic` plus its credential, or one word;
+  after `authorization` any `<scheme> <credential>`. After a `:` a filler
+  word (`it`, `the`, `is`, ...) standing alone is prose, so "the token: it
+  expires" stays, but `in-the-x` and `a/b` are values. After `=` and inside
+  quotes everything is redacted.
+- command-line flags: `--password x`, `--token x`, `--api-key x` (a value that
+  starts with `-` or is a filler word is not taken). `--password-file path`
+  is left alone: it names a file, not a secret.
+- Trade-off: a key joined to other words over-redacts (`token_count: 5`,
+  `token-based: yes`).
+- Every pattern is bounded or anchored to word starts, so 100 KB of
+  adversarial text redacts in well under 200 ms (tested).
 - connection strings with credentials: `\w+://[^\s:@]+:[^\s@]+@`
 
 Patterns live in one table with a test per kind. No entropy-based guessing in
@@ -214,9 +234,22 @@ calibration shows neighbouring levels getting split.
   times the configured price. Refuse if that would exceed
   `monthlyBudgetUsd = 1.65` (calendar month) or `dailyBudgetUsd = 0.10`.
   The daily cap stops one heavy day from using up the month.
-- After calling: add `usage.cost` from the response, or the estimate if the
-  response lacks it, to both totals in `$.store`, keyed by local date and
-  month. One shared budget covers every session.
+- Before the fetch, the estimate is reserved in `$.store` under a request id
+  (`pending`, beside the day and month totals), and the gate counts every live
+  reservation. A call that timed out therefore still weighs on the next one
+  while its fetch runs on. A reservation older than 10 minutes, or dated more than that ahead (the
+  clock went back), is dropped.
+- After calling: replace the reservation with `usage.cost` from the response,
+  or the estimate if the response lacks it, in both totals, keyed by local
+  date and month. One shared budget covers every session. A record written
+  before reservations existed has no `pending` and keeps its totals.
+- Fail closed: if the store cannot be read, or the reservation cannot be
+  written, no request goes out (`budget`). A garbled value still reads as 0.
+  A cost whose write fails is kept in an in-memory session ledger that the
+  gate counts, and is written with the next successful settle.
+- Known limit: reading and writing the totals is not atomic. Two sessions, or
+  a late landing and a new call, can overwrite each other's update, which
+  undercounts by at most one call's cost. Per-session keys were not worth it.
 - Expected spend: state 16 KB plus questions about 3 KB is roughly 6k input
   tokens, about $0.00025 per grade at $0.042/M. The daily cap allows about
   400 grades. A realistic 50–150 grades a day costs $0.40–1.15 a month,
@@ -275,7 +308,8 @@ Starting weights (to be calibrated, section 6):
 - `/jev`: status (on/off, today's spend against the cap, model) and the last
   grade's full breakdown: every dimension's score, weight and confidence, plus
   the task-type probabilities.
-- `/jev on` and `/jev off`: session toggle, kept in `$.state`.
+- `/jev on` and `/jev off`: session toggle, kept in `$.state`. `on` starts the
+  idle wait for a draft already in the box.
 
 ### 4.10 Configuration (`userConfig`, read once in `src/config.ts`)
 
