@@ -6,7 +6,7 @@ Audience: the author first; written so it can be published as a plugin later.
 ## 1. What it does
 
 While you type in the Claude Code prompt box, jev-prompt waits until the draft
-is at least 10 characters and you have stopped typing for 10 seconds (section
+is at least 10 characters and you have stopped typing for 7 seconds (section
 4.1). It then
 grades the draft 0–100% against a prompting rubric and shows the score above
 the prompt box together with the 1–3 biggest gaps:
@@ -23,7 +23,7 @@ rewrites a prompt.
 | Topic          | Decision                                                                                                                                                               |
 | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Grader         | Jev (TypeSafe's decision model) through OpenRouter, using the author's existing key. Jev gives probability-weighted scores and generates no text.                           |
-| Trigger        | ≥ 10 chars and 10 s idle; a 5 s pause fired mid-thought. Punctuation never shortens the wait. An opt-in setting additionally requires the draft to end in `.` `?` `!`. |
+| Trigger        | ≥ 10 chars and 7 s idle; a 5 s pause fired mid-thought. Punctuation never shortens the wait. An opt-in setting additionally requires the draft to end in `.` `?` `!`. |
 | Cost           | About $10 per half-year at most: hard caps of $1.65 a month and $0.10 a day (section 4.6).                                                                             |
 | Grade shape    | 0–100%, a weighted combination of per-dimension Jev scores (TypeSafe's "composite scoring" pattern).                                                                   |
 | Methodology    | Anthropic prompting guidance, project-aware (CLAUDE.md), task-type aware.                                                                                              |
@@ -71,7 +71,7 @@ Jev via OpenRouter:
 
 ```
  keystroke ──► prompt.edit ─┐
- paste/history ► prompt.change ─┴─► Trigger (10 s idle; O(1) on the key path)
+ paste/history ► prompt.change ─┴─► Trigger (7 s idle; O(1) on the key path)
                                          │ fires
                                          ▼
                               $.prompt.read() ── skip? (see 4.2)
@@ -104,7 +104,7 @@ Jev via OpenRouter:
   cancel the pending timer, start a new `$.clock.after(idleMs)`, mark the band
   stale, and return `next(e)`. No I/O. `prompt.edit` awaits `next(e)` only
   to learn the text the edit produced.
-- `idleMs` is 10000, so a pause to think mid-sentence does not trigger a
+- `idleMs` is 7000, so a pause to think mid-sentence does not trigger a
   grade. Punctuation never shortens it.
 - Opt-in `requireEndPunctuation` (default off): when the timer fires, also
   require the draft, ignoring trailing whitespace, to end in `.` `?` or `!`.
@@ -329,7 +329,7 @@ so they are never shown as gaps.
 | ----------------------- | ----------------- | ------------------- | -------------------------------------------------------------------------------------- |
 | `openrouterApiKey`      | string, sensitive | none                | secure storage, never in settings.json                                                 |
 | `model`                 | string            | `typesafe/jev-1.14` | pinned exact: scores shift between Jev releases, so weights are calibrated per version |
-| `idleMs`                | number            | 10000               | pause mid-sentence                                                                     |
+| `idleMs`                | number            | 7000                | pause mid-sentence                                                                     |
 | `requireEndPunctuation` | boolean           | false               | when on, grade only drafts ending in `.` `?` `!` (still after `idleMs`)                |
 | `minChars`              | number            | 10                  |                                                                                        |
 | `monthlyBudgetUsd`      | number            | 1.65                | hard cap, about $10 per half-year (section 4.6)                                        |
@@ -395,9 +395,9 @@ which goes against the project-local rule.
   0.6 and 0.4 give exactly 70. Never derived from the code under test.
 - The `jev.ts` response check uses one captured real Jev response per answer
   type as fixtures, not hand-built mocks of the client.
-- Trigger: with the test kit's mocked clock, verify that edits within 10 s
-  give no call, 10 s of idle gives one call, a draft ending in `?` still
-  waits the full 10 s, and with `requireEndPunctuation` on, a draft ending
+- Trigger: with the test kit's mocked clock, verify that edits within 7 s
+  give no call, 7 s of idle gives one call, a draft ending in `?` still
+  waits the full 7 s, and with `requireEndPunctuation` on, a draft ending
   mid-sentence gets no call while one ending in `.` gets one. Also that a
   stale result is dropped and submit clears the band.
 - Calibration (done 2026-11-02 in the gitignored `calibrate/` harness,

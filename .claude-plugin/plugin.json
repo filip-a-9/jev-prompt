@@ -20,7 +20,7 @@
 			"type": "number",
 			"title": "Idle before grading (ms)",
 			"description": "How long typing must pause before a grade.",
-			"default": 10000
+			"default": 7000
 		},
 		"requireEndPunctuation": {
 			"type": "boolean",

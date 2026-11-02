@@ -6,7 +6,7 @@ describe("parseConfig", () => {
 		expect(parseConfig({})).toEqual({
 			apiKey: undefined,
 			model: "typesafe/jev-1.14",
-			idleMs: 10000,
+			idleMs: 7000,
 			requireEndPunctuation: false,
 			minChars: 10,
 			monthlyBudgetUsd: 1.65,
@@ -18,7 +18,7 @@ describe("parseConfig", () => {
 		});
 	});
 	test("DEFAULTS equals parseConfig({})", () => {
-		expect(DEFAULTS.idleMs).toBe(10000);
+		expect(DEFAULTS.idleMs).toBe(7000);
 		expect(DEFAULTS.requireZdr).toBe(true);
 	});
 	test("valid values are taken, openrouterApiKey maps to apiKey", () => {
@@ -87,7 +87,7 @@ describe("parseConfig", () => {
 			dailyBudgetUsd: -0.01,
 			priceUsdPerMTok: null,
 		});
-		expect(c.idleMs).toBe(10000);
+		expect(c.idleMs).toBe(7000);
 		expect(c.minChars).toBe(10);
 		expect(c.timeoutMs).toBe(3000);
 		expect(c.monthlyBudgetUsd).toBe(1.65);
@@ -102,7 +102,7 @@ describe("parseConfig", () => {
 	test("unknown keys are ignored and one bad field does not spoil others", () => {
 		const c = parseConfig({ bogus: 1, idleMs: -5, minChars: 3 });
 		expect(c.minChars).toBe(3);
-		expect(c.idleMs).toBe(10000);
+		expect(c.idleMs).toBe(7000);
 		expect("bogus" in c).toBe(false);
 	});
 });

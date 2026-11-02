@@ -164,14 +164,14 @@ function held() {
 
 describe("trigger", () => {
 	test(
-		"edits within the idle time make no call; ten idle seconds make one",
+		"edits within the idle time make no call; seven idle seconds make one",
 		KEY,
 		async ($, on) => {
 			const w = world(on, () => unauthorized);
 			await type($, w, "fix the login");
 			await w.clock.advance(6000);
 			await type($, w, " bug please");
-			await w.clock.advance(9999);
+			await w.clock.advance(6999);
 			expect(w.calls.length).toBe(0);
 			await w.clock.advance(1);
 			expect(w.calls.length).toBe(1);
@@ -184,7 +184,7 @@ describe("trigger", () => {
 		async ($, on) => {
 			const w = world(on, () => unauthorized);
 			await type($, w, "why does the login fail?");
-			await w.clock.advance(9999);
+			await w.clock.advance(6999);
 			expect(w.calls.length).toBe(0);
 			await w.clock.advance(1);
 			expect(w.calls.length).toBe(1);
@@ -541,7 +541,7 @@ describe("after a reload", () => {
 			const w = world(on, () => gate.promise);
 			on("session.start", (_, e) => ({ cwd: e.cwd }));
 			await type($, w, "fix the login bug in src/auth.ts");
-			await w.clock.advance(10000);
+			await w.clock.advance(7000);
 			expect((await band($))?.text).toContain("grading");
 			await start($);
 			expect(await band($)).toBeUndefined();
@@ -581,7 +581,7 @@ describe("/jev", () => {
 			await jev($, "off");
 			await w.clock.advance(10000);
 			await jev($, "on");
-			await w.clock.advance(9999);
+			await w.clock.advance(6999);
 			expect(w.calls.length).toBe(0);
 			await w.clock.advance(1);
 			expect(w.calls.length).toBe(1);

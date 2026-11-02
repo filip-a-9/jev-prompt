@@ -3,7 +3,7 @@ import type { Config } from "./types";
 export const DEFAULTS: Config = {
 	apiKey: undefined,
 	model: "typesafe/jev-1.14",
-	idleMs: 10000,
+	idleMs: 7000,
 	requireEndPunctuation: false,
 	minChars: 10,
 	monthlyBudgetUsd: 1.65,
