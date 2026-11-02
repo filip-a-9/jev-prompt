@@ -41,6 +41,14 @@ export type Config = {
 	promptCommands: readonly string[];
 };
 
+/** The questions Jev is asked: task type plus one score question per dimension. */
+export type Questions = Readonly<Record<"task_type" | Dimension, JevQuestion>>;
+/** Per task type, how much each dimension counts. */
+export type Weights = Readonly<
+	Record<TaskType, Readonly<Record<Dimension, number>>>
+>;
+export type Rubric = { questions: Questions; weights: Weights };
+
 /** The `state` object sent to Jev (spec 4.3). */
 export type JevState = {
 	draft: string;

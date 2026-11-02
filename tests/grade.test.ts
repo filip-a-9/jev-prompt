@@ -1,6 +1,8 @@
 import { describe, expect, test } from "claude-code/testing";
 import { gradeAnswers } from "../src/grade";
-import type { Answers, Dimension } from "../src/types";
+import { QUESTIONS, RUBRIC } from "../src/rubric";
+import type { Answers, Dimension, Rubric, TaskType } from "../src/types";
+import { DIMENSIONS, TASK_TYPES } from "../src/types";
 
 type Scores = Record<Dimension, number>;
 
@@ -50,6 +52,34 @@ const allTop: Scores = {
 
 const near = (a: number, b: number) => Math.abs(a - b) < 1e-9;
 
+/**
+ * The spec's starting weights (4.7), kept here so the formula tests do not
+ * move when the shipped weights are recalibrated. Each row sums to 1.
+ */
+const START: Rubric = {
+	questions: QUESTIONS,
+	weights: {
+		// goal context verif constr evid focus ration output reply
+		bug_fix: w(0.2, 0.2, 0.15, 0.05, 0.25, 0.1, 0.05, 0, 0),
+		feature: w(0.25, 0.2, 0.15, 0.15, 0, 0.1, 0.1, 0.05, 0),
+		refactor: w(0.2, 0.2, 0.2, 0.2, 0, 0.1, 0.1, 0, 0),
+		question: w(0.35, 0.25, 0, 0.05, 0, 0.15, 0.05, 0.15, 0),
+		review: w(0.25, 0.25, 0.1, 0.15, 0, 0.1, 0.05, 0.1, 0),
+		ops: w(0.3, 0.25, 0.15, 0.2, 0, 0.1, 0, 0, 0),
+		follow_up: w(0.15, 0.1, 0, 0, 0, 0.1, 0, 0, 0.65),
+		other: w(0.3, 0.25, 0.1, 0.1, 0, 0.15, 0.05, 0.05, 0),
+	},
+};
+
+function w(...v: number[]): Record<Dimension, number> {
+	return Object.fromEntries(DIMENSIONS.map((d, i) => [d, v[i] ?? 0])) as Record<
+		Dimension,
+		number
+	>;
+}
+
+const gradeStart = (a: Answers) => gradeAnswers(a, START);
+
 describe("gradeAnswers", () => {
 	test("a certain bug fix is graded with the bug_fix weights", () => {
 		// bug_fix row: goal .20 context .20 verification .15 constraints .05
@@ -57,7 +87,7 @@ describe("gradeAnswers", () => {
 		// s: goal 3/3=1, context 2/3, verification 1/2, constraints 2/2=1,
 		// evidence 0, focus 1, rationale 1/2, output 0, reply_fit 0
 		// sum = .20 + .1333.. + .075 + .05 + 0 + .10 + .025 = .58333.. -> 58
-		const g = gradeAnswers(
+		const g = gradeStart(
 			answers({ bug_fix: 1 }, "bug_fix", {
 				goal: 3,
 				context: 2,
@@ -93,7 +123,7 @@ describe("gradeAnswers", () => {
 		// rationale (.05+.10)/2=.075, output .025, reply_fit 0
 		// s: all 1 except constraints 1/2, evidence 0, rationale 0
 		// sum = .225 + .20 + .15 + .05 + 0 + .10 + 0 + .025 = .75 -> 75
-		const g = gradeAnswers(
+		const g = gradeStart(
 			answers({ bug_fix: 0.5, feature: 0.5 }, "feature", {
 				goal: 3,
 				context: 3,
@@ -127,14 +157,14 @@ describe("gradeAnswers", () => {
 	});
 
 	test("a tie between task types goes to the first in TASK_TYPES order", () => {
-		const g = gradeAnswers(
+		const g = gradeStart(
 			answers({ feature: 0.5, bug_fix: 0.5 }, "feature", allTop),
 		);
 		expect(g.type).toBe("bug_fix");
 	});
 
 	test("type probabilities keep only known task types, renormalised", () => {
-		const g = gradeAnswers(
+		const g = gradeStart(
 			answers({ bug_fix: 0.3, ops: 0.1, banana: 0.6 }, "bug_fix", allTop),
 		);
 		expect(near(g.typeProbabilities.bug_fix, 0.75)).toBe(true);
@@ -147,14 +177,14 @@ describe("gradeAnswers", () => {
 	const noCheck: Scores = { ...allTop, verification: 0 };
 
 	test("type probabilities that sum to 0 fall back to the choice", () => {
-		const g = gradeAnswers(answers({ bug_fix: 0, ops: 0 }, "ops", noCheck));
+		const g = gradeStart(answers({ bug_fix: 0, ops: 0 }, "ops", noCheck));
 		expect(g.type).toBe("ops");
 		expect(g.typeProbabilities.ops).toBe(1);
 		expect(g.grade).toBe(85);
 	});
 
 	test("an unknown choice with no probabilities counts as other", () => {
-		const g = gradeAnswers(answers({}, "banana", noCheck));
+		const g = gradeStart(answers({}, "banana", noCheck));
 		expect(g.type).toBe("other");
 		expect(g.typeProbabilities.other).toBe(1);
 		expect(g.grade).toBe(90);
@@ -163,7 +193,7 @@ describe("gradeAnswers", () => {
 
 describe("gaps", () => {
 	const bugFix = (scores: Partial<Scores>) =>
-		gradeAnswers(answers({ bug_fix: 1 }, "bug_fix", { ...allTop, ...scores }));
+		gradeStart(answers({ bug_fix: 1 }, "bug_fix", { ...allTop, ...scores }));
 
 	test("a weight of exactly 0.10 counts, a weight below it does not", () => {
 		// focus w .10, s 0 -> gap; constraints w .05, s 0 -> not a gap
@@ -172,7 +202,7 @@ describe("gaps", () => {
 
 	test("a blended weight of 0.10 counts despite float rounding", () => {
 		// focus is .10 in both rows, so .3·.10 + .7·.10 = .10 on paper
-		const g = gradeAnswers(
+		const g = gradeStart(
 			answers({ bug_fix: 0.3, feature: 0.7 }, "feature", {
 				...allTop,
 				focus: 0,
@@ -212,7 +242,7 @@ describe("certainty", () => {
 	// at confidence c; output and reply_fit (weight 0) at confidence 1.
 	// Weighted mean = .55·c. An unweighted mean would be (5c + 2) / 9 ≈ .62.
 	const withConfidence = (c: number) =>
-		gradeAnswers(
+		gradeStart(
 			answers({ bug_fix: 1 }, "bug_fix", allTop, {
 				goal: 0,
 				evidence: 0,
@@ -237,7 +267,7 @@ describe("certainty", () => {
 
 describe("normalised scores", () => {
 	test("scores outside the level range are clamped to 0..1", () => {
-		const g = gradeAnswers(
+		const g = gradeStart(
 			answers({ bug_fix: 1 }, "bug_fix", {
 				...allTop,
 				verification: 2.4,
@@ -248,5 +278,47 @@ describe("normalised scores", () => {
 		expect(g.dimensions.evidence.s).toBe(0);
 		// bug_fix: everything at 1 except evidence (.25) at 0 -> 75
 		expect(g.grade).toBe(75);
+	});
+});
+
+describe("a custom rubric", () => {
+	const questions = {
+		...QUESTIONS,
+		context: {
+			type: "score" as const,
+			instructions: "x",
+			criteria: ["a", "b", "c", "d", "e"],
+		},
+	};
+	const weights = Object.fromEntries(
+		TASK_TYPES.map((t) => [
+			t,
+			Object.fromEntries(DIMENSIONS.map((d) => [d, d === "context" ? 1 : 0])),
+		]),
+	) as Record<TaskType, Record<Dimension, number>>;
+	const rubric: Rubric = { questions, weights };
+	const input = () =>
+		answers({ bug_fix: 1 }, "bug_fix", { ...allTop, context: 2 });
+
+	test("another level count and other weights change the grade", () => {
+		// Context has 5 levels, so score 2 -> s = 2/4 = 0.5. All weight is on
+		// context, so the grade is 100 * 1 * 0.5 = 50.
+		const g = gradeAnswers(input(), rubric);
+		expect(g.dimensions.context.s).toBe(0.5);
+		expect(g.grade).toBe(50);
+	});
+
+	test("the same weights with the default 4-level question grade differently", () => {
+		// 4 levels: s = 2/3, grade = round(66.67) = 67.
+		expect(gradeAnswers(input(), { questions: QUESTIONS, weights }).grade).toBe(
+			67,
+		);
+	});
+
+	test("no rubric given: the default rubric, as before", () => {
+		// shipped bug_fix row: context .30; all at the top except context 2/3:
+		// 100 - 30 * (1/3) = 90
+		expect(gradeAnswers(input()).grade).toBe(90);
+		expect(gradeAnswers(input(), RUBRIC)).toEqual(gradeAnswers(input()));
 	});
 });

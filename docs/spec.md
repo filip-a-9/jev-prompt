@@ -288,18 +288,17 @@ calibration shows neighbouring levels getting split.
 6. Certainty: if the weighted mean of the score confidences is below 0.4,
    the grade is shown as `~58%`.
 
-Starting weights (to be calibrated, section 6):
+Weights, calibrated for `typesafe/jev-1.14-20261014` (section 6). One row
+for every type: goal .35, context .40, focus .25. bug_fix takes .75 of it plus
+evidence .25 (no bug fix was in the labelled set); follow_up takes .90 of it
+plus reply_fit .10. Verification, constraints, rationale and output weigh 0,
+so they are never shown as gaps.
 
-| type      | goal | context | verification | constraints | evidence | focus | rationale | output | reply_fit |
-| --------- | ---- | ------- | ------------ | ----------- | -------- | ----- | --------- | ------ | --------- |
-| bug_fix   | .20  | .20     | .15          | .05         | .25      | .10   | .05       | 0      | 0         |
-| feature   | .25  | .20     | .15          | .15         | 0        | .10   | .10       | .05    | 0         |
-| refactor  | .20  | .20     | .20          | .20         | 0        | .10   | .10       | 0      | 0         |
-| question  | .35  | .25     | 0            | .05         | 0        | .15   | .05       | .15    | 0         |
-| review    | .25  | .25     | .10          | .15         | 0        | .10   | .05       | .10    | 0         |
-| ops       | .30  | .25     | .15          | .20         | 0        | .10   | 0         | 0      | 0         |
-| follow_up | .15  | .10     | 0            | 0           | 0        | .10   | 0         | 0      | .65       |
-| other     | .30  | .25     | .10          | .10         | 0        | .15   | .05       | .05    | 0         |
+| type      | goal  | context | verification | constraints | evidence | focus | rationale | output | reply_fit |
+| --------- | ----- | ------- | ------------ | ----------- | -------- | ----- | --------- | ------ | --------- |
+| bug_fix   | .2625 | .30     | 0            | 0           | .25      | .1875 | 0         | 0      | 0         |
+| follow_up | .315  | .36     | 0            | 0           | 0        | .225  | 0         | 0      | .10       |
+| all other | .35   | .40     | 0            | 0           | 0        | .25   | 0         | 0      | 0         |
 
 ### 4.8 Band
 
@@ -401,10 +400,23 @@ which goes against the project-local rule.
   waits the full 10 s, and with `requireEndPunctuation` on, a draft ending
   mid-sentence gets no call while one ending in `.` gets one. Also that a
   stale result is dropped and submit clears the band.
-- Calibration (manual, before trusting the numbers): about 20 of the author's real
-  prompts, each labelled good / ok / poor by the author, graded once. Weights are
-  adjusted until the bands agree. Jev's own docs warn that probabilities vary
-  between requests and that thresholds need checking against real examples.
+- Calibration (done 2026-11-02 in the gitignored `calibrate/` harness,
+  model `typesafe/jev-1.14-20261014`): 84 real prompts typed into Claude
+  Code, each labelled good / ok / poor as the median of three blind Claude
+  labellers. The labels are Claude's judgement, not the author's; the labellers
+  agree with each other 82–85% of the time. Every case was graded 3 times.
+  - Wording: five rounds; the shipped questions are the set measured
+    (`sharpened2`, 4512 bytes, pinned by its sha256 in `tests/rubric.test.ts`).
+  - Agreement of the band with the label: 66/84 (79%) on the cases the
+    weights were fitted to, 60/84 (71%) leave-one-out. The weights fitted on
+    the first 52 cases agreed on 21 of 33 fresh ones (64%). The starting
+    rubric agreed on 29/52 (56%).
+  - The 80% target was not met. No weighting of these answers, even with
+    free band cut-offs, passes 79% in-sample: the limit is how Jev ranks
+    prompts. Short replies the last reply makes plain ("I added ssh") are
+    the usual miss; Jev rates them ok.
+  - A new Jev version, or any change to the wording, means calibrating
+    again.
 
 ## 7. Risks and open points
 
@@ -418,8 +430,8 @@ which goes against the project-local rule.
   endpoints; if none serves Jev, grading stops with a notice.
 - **Price** is taken from the Jev 1.13 listing. Confirm the 1.14 price on
   OpenRouter. The cap is enforced on `usage.cost` either way.
-- **Accuracy** of a classifier-style judge on short prompts is unproven.
-  Calibration (section 6) is what makes the number meaningful.
+- **Accuracy** is about 71% band agreement with Claude-labelled prompts
+  (section 6), short of the 80% target: treat the grade as a rough guide.
 - **Publishing later.** The key stays in secure storage and the repository
   carries `.gitignore` per the global rules. The marketplace install is
   `/plugin install jev-prompt --marketplace <owner>/<repo>`.

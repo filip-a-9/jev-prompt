@@ -1,12 +1,13 @@
 // Turns Jev's answers into the grade shown in the band (spec 4.7). Pure.
 
-import { levelCount, WEIGHTS } from "./rubric";
+import { levelCount, RUBRIC } from "./rubric";
 import {
 	type Answers,
 	DIMENSIONS,
 	type Dimension,
 	type DimensionResult,
 	type Grade,
+	type Rubric,
 	TASK_TYPES,
 	type TaskType,
 } from "./types";
@@ -42,7 +43,7 @@ function mostProbable(p: Record<TaskType, number>): TaskType {
 	return TASK_TYPES.reduce((best, t) => (p[t] > p[best] ? t : best));
 }
 
-export function gradeAnswers(answers: Answers): Grade {
+export function gradeAnswers(answers: Answers, rubric: Rubric = RUBRIC): Grade {
 	const p = typeProbabilities(answers);
 
 	const dimensions = {} as Record<Dimension, DimensionResult>;
@@ -50,8 +51,14 @@ export function gradeAnswers(answers: Answers): Grade {
 	let confidence = 0;
 	for (const d of DIMENSIONS) {
 		const a = answers[d];
-		const s = Math.min(1, Math.max(0, a.score / (levelCount(d) - 1)));
-		const w = TASK_TYPES.reduce((sum, t) => sum + p[t] * WEIGHTS[t][d], 0);
+		const s = Math.min(
+			1,
+			Math.max(0, a.score / (levelCount(d, rubric.questions) - 1)),
+		);
+		const w = TASK_TYPES.reduce(
+			(sum, t) => sum + p[t] * rubric.weights[t][d],
+			0,
+		);
 		dimensions[d] = { s, w, confidence: a.confidence };
 		total += w * s;
 		confidence += w * a.confidence;

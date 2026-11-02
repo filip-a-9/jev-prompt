@@ -16,3 +16,6 @@ dist/
 
 # Engine-generated mod types (rewritten on each load)
 .claude-plugin/types/
+
+# Calibration harness: local tooling with private prompts, never shipped
+calibrate/

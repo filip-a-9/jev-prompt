@@ -86,9 +86,27 @@ describe("QUESTIONS", () => {
 		}
 	});
 
-	test("serialized questions stay within the 4096-byte cost budget", () => {
+	test("serialized questions stay within the 4.5 KB cost budget", () => {
+		// Self-imposed: the questions are sent with every call, so they are paid
+		// for every time. Raised from 4096 for the calibrated wording (4512).
 		const bytes = new TextEncoder().encode(JSON.stringify(QUESTIONS)).length;
-		expect(bytes).toBeLessThanOrEqual(4096);
+		expect(bytes).toBeLessThanOrEqual(4608);
+	});
+
+	test("the questions are exactly the set calibrated against the pinned model", async () => {
+		// sha256 of JSON.stringify(QUESTIONS) for the set measured in calibrate/
+		// (variant sharpened2, typesafe/jev-1.14-20261014). Changing any wording
+		// voids the calibration: recalibrate, then update this hash.
+		const digest = await crypto.subtle.digest(
+			"SHA-256",
+			new TextEncoder().encode(JSON.stringify(QUESTIONS)),
+		);
+		const hex = [...new Uint8Array(digest)]
+			.map((b) => b.toString(16).padStart(2, "0"))
+			.join("");
+		expect(hex).toBe(
+			"8fca1647db1ba6d5819175bae01c454c2d19b3dff4d685ad39d3f23cddd80a32",
+		);
 	});
 });
 
@@ -120,9 +138,38 @@ describe("WEIGHTS", () => {
 	});
 
 	test("reply_fit counts only for follow-ups", () => {
-		expect(WEIGHTS.follow_up.reply_fit).toBe(0.65);
+		expect(WEIGHTS.follow_up.reply_fit).toBe(0.1);
 		for (const t of types) {
 			if (t !== "follow_up") expect([t, WEIGHTS[t].reply_fit]).toEqual([t, 0]);
+		}
+	});
+	test("every type uses the calibrated row; bug_fix and follow_up mix in their own dimension", () => {
+		// Calibrated row R: goal .35, context .40, focus .25, the rest 0.
+		// bug_fix = .75 R + .25 evidence: goal .2625, context .30, focus .1875.
+		// follow_up = .90 R + .10 reply_fit: goal .315, context .36, focus .225.
+		const want = (goal: number, context: number, focus: number) => ({
+			goal,
+			context,
+			verification: 0,
+			constraints: 0,
+			focus,
+			rationale: 0,
+			output: 0,
+		});
+		const expected: Record<string, Record<string, number>> = {
+			bug_fix: { ...want(0.2625, 0.3, 0.1875), evidence: 0.25, reply_fit: 0 },
+			follow_up: { ...want(0.315, 0.36, 0.225), evidence: 0, reply_fit: 0.1 },
+		};
+		for (const t of types) {
+			const e = expected[t] ?? {
+				...want(0.35, 0.4, 0.25),
+				evidence: 0,
+				reply_fit: 0,
+			};
+			for (const [d, w] of Object.entries(e)) {
+				const got = WEIGHTS[t][d as keyof (typeof WEIGHTS)[typeof t]];
+				expect([t, d, Math.abs(got - w) < 1e-9]).toEqual([t, d, true]);
+			}
 		}
 	});
 });

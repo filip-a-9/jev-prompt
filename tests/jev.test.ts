@@ -8,8 +8,8 @@ import {
 	newLedger,
 	SPEND_KEY,
 } from "../src/jev";
-import { QUESTIONS } from "../src/rubric";
-import type { Config, JevState, Spend } from "../src/types";
+import { QUESTIONS, RUBRIC } from "../src/rubric";
+import type { Config, JevState, Rubric, Spend } from "../src/types";
 import { badKey } from "./fixtures/bad-key";
 import { bugfixNozdr } from "./fixtures/bugfix-nozdr";
 import { bugfixZdr } from "./fixtures/bugfix-zdr";
@@ -953,5 +953,46 @@ describe("zdr refusal", () => {
 		expect((await jevCall(w.io, config(), STATE, newLedger())).kind).toBe(
 			"unexpected",
 		);
+	});
+});
+
+describe("a custom rubric", () => {
+	const rubric: Rubric = {
+		weights: RUBRIC.weights,
+		questions: {
+			...QUESTIONS,
+			context: {
+				type: "score",
+				instructions: "x",
+				criteria: ["a", "b", "c", "d", "e"],
+			},
+		},
+	};
+
+	test("the request body carries that rubric's questions", async () => {
+		const w = world();
+		await jevCall(w.io, config(), STATE, newLedger(), rubric);
+		const b = bodyOf(w.requests[0] as { init: Record<string, unknown> });
+		expect(b.questions).toEqual(JSON.parse(JSON.stringify(rubric.questions)));
+	});
+
+	// bugfix-zdr with only the context score changed to 4 (top of 5 levels).
+	const reply = () => {
+		const body = clone(bugfixZdr.body);
+		body.answers.context.score = 4;
+		return { status: 200, text: JSON.stringify(body) };
+	};
+
+	test("a context score of 4 is accepted under a 5-level context question", async () => {
+		const w = world({ reply: reply() });
+		const out = await jevCall(w.io, config(), STATE, newLedger(), rubric);
+		if (out.kind !== "ok") throw new Error(`got ${out.kind}`);
+		expect(out.answers.context.score).toBe(4);
+	});
+
+	test("the same score of 4 is unexpected under the default rubric", async () => {
+		const w = world({ reply: reply() });
+		const out = await jevCall(w.io, config(), STATE, newLedger());
+		expect(out.kind).toBe("unexpected");
 	});
 });

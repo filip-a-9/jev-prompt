@@ -5,7 +5,7 @@
 // not pass `$` as an argument, so hooks/register.tsx builds the Io from
 // `$.http.fetch`, `$.clock`, `$.store` and `$.ui.log` at its call site.
 
-import { levelCount, QUESTIONS } from "./rubric";
+import { levelCount, RUBRIC } from "./rubric";
 import {
 	type Answers,
 	type ChoiceAnswer,
@@ -14,6 +14,8 @@ import {
 	type Dimension,
 	type JevOutcome,
 	type JevState,
+	type Questions,
+	type Rubric,
 	type ScoreAnswer,
 	type Spend,
 } from "./types";
@@ -199,11 +201,15 @@ function probabilities(v: unknown): Record<string, number> | undefined {
 /** Scores come to two decimals; this much past either end is rounding noise. */
 const SCORE_SLACK = 0.01;
 
-function scoreAnswer(v: unknown, d: Dimension): ScoreAnswer | undefined {
+function scoreAnswer(
+	v: unknown,
+	d: Dimension,
+	questions: Questions,
+): ScoreAnswer | undefined {
 	if (!isObject(v) || v.type !== "score") return undefined;
 	const probs = probabilities(v.probabilities);
 	if (!num(v.score) || !num(v.confidence) || !probs) return undefined;
-	const top = levelCount(d) - 1;
+	const top = levelCount(d, questions) - 1;
 	if (v.score < -SCORE_SLACK || v.score > top + SCORE_SLACK) return undefined;
 	return {
 		type: "score",
@@ -228,14 +234,17 @@ function choiceAnswer(v: unknown): ChoiceAnswer | undefined {
 }
 
 /** The response check: every question answered, each of the right shape. */
-function checkAnswers(parsed: unknown): Answers | undefined {
+function checkAnswers(
+	parsed: unknown,
+	questions: Questions,
+): Answers | undefined {
 	if (!isObject(parsed) || !isObject(parsed.answers)) return undefined;
 	const a = parsed.answers;
 	const task_type = choiceAnswer(a.task_type);
 	if (!task_type) return undefined;
 	const dims: Partial<Record<Dimension, ScoreAnswer>> = {};
 	for (const d of DIMENSIONS) {
-		const s = scoreAnswer(a[d], d);
+		const s = scoreAnswer(a[d], d, questions);
 		if (!s) return undefined;
 		dims[d] = s;
 	}
@@ -260,13 +269,14 @@ export async function jevCall(
 	config: Config,
 	state: JevState,
 	ledger: Ledger,
+	rubric: Rubric = RUBRIC,
 ): Promise<JevOutcome> {
 	if (config.apiKey === undefined) return { kind: "key-rejected" };
 	// Never rejects: before a reservation exists a failure means no call is
 	// made (budget, fail closed); after it, the call may be on its way (offline).
 	const stage = { reserved: false };
 	try {
-		return await call(io, config, state, ledger, stage);
+		return await call(io, config, state, ledger, stage, rubric);
 	} catch {
 		return { kind: stage.reserved ? "offline" : "budget" };
 	}
@@ -278,12 +288,13 @@ async function call(
 	state: JevState,
 	ledger: Ledger,
 	stage: { reserved: boolean },
+	rubric: Rubric,
 ): Promise<JevOutcome> {
 	const apiKey = config.apiKey;
 	const body = JSON.stringify({
 		model: config.model,
 		state,
-		questions: QUESTIONS,
+		questions: rubric.questions,
 		...(config.requireZdr ? { provider: { zdr: true } } : {}),
 	});
 	const estimate = (bytes(body) / 3) * (config.priceUsdPerMTok / 1e6);
@@ -342,7 +353,7 @@ async function call(
 	const parsed = parseJson(settled.text);
 	if (isZdrRefusal(settled.status, parsed)) return { kind: "zdr-unavailable" };
 	if (settled.ok) {
-		const answers = checkAnswers(parsed);
+		const answers = checkAnswers(parsed, rubric.questions);
 		if (answers) {
 			return {
 				kind: "ok",
