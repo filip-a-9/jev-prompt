@@ -100,8 +100,8 @@ describe("QUESTIONS", () => {
 	});
 
 	test("the questions are exactly the set calibrated against the pinned model", async () => {
-		// sha256 of JSON.stringify(QUESTIONS) for the set measured in calibrate/
-		// (variant sharpened2, typesafe/jev-1.14-20261014). Changing any wording
+		// sha256 of JSON.stringify(QUESTIONS) for the set measured in the (private)
+		// calibration harness (variant sharpened2, typesafe/jev-1.14-20261014). Changing any wording
 		// voids the calibration: recalibrate, then update this hash.
 		const digest = await crypto.subtle.digest(
 			"SHA-256",

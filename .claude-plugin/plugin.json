@@ -3,6 +3,15 @@
 	"version": "0.1.0",
 	"description": "Grades the prompt you are typing against a prompting rubric, live, with Jev through OpenRouter.",
 	"types": "./types/index.d.ts",
+	"author": {
+		"name": "EDantes",
+		"email": "253079570+filip-a-9@users.noreply.github.com",
+		"url": "https://github.com/filip-a-9"
+	},
+	"homepage": "https://github.com/filip-a-9/jev-prompt",
+	"repository": "https://github.com/filip-a-9/jev-prompt",
+	"license": "MIT",
+	"keywords": ["prompt", "prompting", "grader", "jev", "openrouter", "mod"],
 	"userConfig": {
 		"openrouterApiKey": {
 			"type": "string",

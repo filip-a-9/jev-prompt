@@ -1,5 +1,5 @@
-// Public surface for outside tooling (calibration). Pure modules only: never
-// the engine, never hooks/register.tsx.
+// Public surface for outside tooling such as a calibration harness. Pure modules
+// only: never the engine, never hooks/register.tsx.
 
 export { DEFAULTS, parseConfig } from "./config";
 export type { MessageRow } from "./context";

@@ -1,7 +1,6 @@
 # jev-prompt — live prompt grader for Claude Code
 
 Status: built and installed (v1, hardening, prompt commands, band redesign). Target: Claude Code 2.1.316 mod API (hooks module).
-Audience: the author first; written so it can be published as a plugin later.
 
 ## 1. What it does
 
@@ -22,11 +21,11 @@ When the grade is uncertain or the type is `other`, the band stays hidden.
 It is advisory only. Enter always sends; the grade never blocks, delays or
 rewrites a prompt.
 
-## 2. Decisions taken in the interview
+## 2. Design decisions
 
 | Topic          | Decision                                                                                                                                                              |
 | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Grader         | Jev (TypeSafe's decision model) through OpenRouter, using the author's existing key. Jev gives probability-weighted scores and generates no text.                          |
+| Grader         | Jev (TypeSafe's decision model) through OpenRouter, using an OpenRouter key. Jev gives probability-weighted scores and generates no text.                             |
 | Trigger        | ≥ 10 chars and 7 s idle; a 5 s pause fired mid-thought. Punctuation never shortens the wait. An opt-in setting additionally requires the draft to end in `.` `?` `!`. |
 | Cost           | About $10 per half-year at most: hard caps of $1.65 a month and $0.10 a day (section 4.6).                                                                            |
 | Grade shape    | 0–100%, a weighted combination of per-dimension Jev scores (TypeSafe's "composite scoring" pattern).                                                                  |
@@ -318,8 +317,8 @@ so they are never shown as gaps.
   - _quiet_: uncertain, or type `other`. Hidden.
 - No digits, no `~`, and no red/yellow/green by score anywhere in the band.
 - Stale (typing after a shown line), `grading…`, and notices use explicit mid-gray
-  (ansi256 245). Never `dimColor`, which renders black on the author's black
-  background.
+  (ansi256 245). Never `dimColor`, which renders black on dark
+  terminals; the gray is readable on dark terminals.
 - Hidden when the draft is under 10 characters and after submit.
 
 ### 4.9 Command
@@ -375,6 +374,7 @@ jev-prompt/
   hooks/hooks.json             { "modules": ["./register.tsx"] }
   hooks/register.tsx           wiring only: events → trigger, band, command
   src/config.ts                options → typed Config
+  src/index.ts                 public surface for outside tooling
   src/trigger.ts               debounce and stale-result guard
   src/context.ts               messages + CLAUDE.md → state, truncation
   src/redact.ts                pattern table + redact()
@@ -383,6 +383,8 @@ jev-prompt/
   src/jev.ts                   jevCall(): budget gate, fetch, response check
   src/band.tsx                 AbovePrompt render
   types/index.d.ts             PluginState: band value, paused flag
+  checks/                      node --test checks (manifest, README)
+  package.json                 pins, scripts, engines
   tests/*.test.ts              claude plugin test
   docs/spec.md                 this file
 ```
@@ -392,14 +394,12 @@ into `src/`. The engine lets `$` reach only top-level functions of the hooks
 module and its own files, and never be stored, so `src/jev.ts` takes an `Io`
 object that `register.tsx` builds from `$`.
 
-The project folder is its own local marketplace
-(`.claude-plugin/marketplace.json`): `/plugin marketplace add
-<repo folder>`, then `/plugin install jev-prompt@jev-prompt`.
-The install screen asks for the key: `/config` shows only non-secret options,
-and `claude --plugin-dir` has no install step, so it runs without a key. An
-install from a folder runs that folder itself; `/reload-plugins` picks up
-edits. The skill's default dev folder under `~/.claude/` is global,
-which goes against the project-local rule.
+The repository is its own marketplace (`.claude-plugin/marketplace.json`):
+`/plugin marketplace add filip-a-9/jev-prompt`, then
+`/plugin install jev-prompt@jev-prompt` and
+`/plugin configure jev-prompt@jev-prompt` for the key. `/config` shows only
+non-secret options, and `claude --plugin-dir` has no install step, so it runs
+without a key. `/reload-plugins` picks up edits.
 
 ## 6. Testing and calibration
 
@@ -414,10 +414,11 @@ which goes against the project-local rule.
   waits the full 7 s, and with `requireEndPunctuation` on, a draft ending
   mid-sentence gets no call while one ending in `.` gets one. Also that a
   stale result is dropped and submit clears the band.
-- Calibration (done 2026-11-02 in the gitignored `calibrate/` harness,
+- Calibration (done 2026-11-02 in a private harness,
   model `typesafe/jev-1.14-20261014`): 84 real prompts typed into Claude
   Code, each labelled good / ok / poor as the median of three blind Claude
-  labellers. The labels are Claude's judgement, not the author's; the labellers
+  labellers. The calibration harness and data are private. The labels are
+  Claude's judgement; the labellers
   agree with each other 82–85% of the time. Every case was graded 3 times.
   - Wording: five rounds; the shipped questions are the set measured
     (`sharpened2`, 4512 bytes, pinned by its sha256 in `tests/rubric.test.ts`).
@@ -446,24 +447,32 @@ which goes against the project-local rule.
 
   Type `other` agrees with labels on 6/34 calls (18%), against 71% for
   `follow_up` and 76% for `question`.
+- Usefulness check (2026-11-03, private harness, Claude labellers). Trouble
+  means the next prompt interrupts, corrects or rephrases.
+  - The trouble detector agreed with hand labels on 36/40 fresh prompts. It
+    caught only 1 of 5 real troubles.
+  - Fresh-task band agreement was not measurable: 9 task openers found, 40
+    needed.
+  - On 217 prompts with an outcome, the band's hints were followed by trouble
+    24% of the time (6/25, Wilson 11–43%), against a 10% base rate. Grade
+    AUC against trouble was 0.60.
+  - Both results sit at the pass line. No real-use study was run. Hence the
+    README positions this as a reference mod.
 
 ## 7. Risks and open points
 
 - **Alpha API.** `/api/alpha/decisions` may change shape. Mitigation: the
   response check and the `unexpected response` state, with the model pinned.
 - **Data policy.** OpenRouter's Jev guide does not state TypeSafe's retention
-  or logging. Drafts and CLAUDE.md go to TypeSafe. Check the model page's
-  data policy before first real use. Redaction reduces the exposure but does
+  or logging. Drafts and CLAUDE.md go to TypeSafe. Redaction reduces the exposure but does
   not remove it.
   `requireZdr` (default on) restricts the call to zero-data-retention
   endpoints; if none serves Jev, grading stops with a notice.
-- **Price** is taken from the Jev 1.13 listing. Confirm the 1.14 price on
-  OpenRouter. The cap is enforced on `usage.cost` either way.
+- **Price** ($0.042 per million input tokens) matches the OpenRouter listing
+  for 1.14 as of 2026-11-03. The cap is enforced on `usage.cost` either way.
 - **Accuracy** is about 71% band agreement with Claude-labelled prompts
   (section 6), short of the 80% target: treat the grade as a rough guide.
-- **Publishing later.** The key stays in secure storage and the repository
-  carries `.gitignore` per the global rules. The marketplace install is
-  `/plugin install jev-prompt --marketplace <owner>/<repo>`.
+- **Data flow and install.** See the README.
 
 ## 8. Out of scope for v1
 

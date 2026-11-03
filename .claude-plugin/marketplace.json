@@ -1,5 +1,15 @@
 {
 	"name": "jev-prompt",
-	"owner": { "name": "EDantes" },
-	"plugins": [{ "name": "jev-prompt", "source": "./" }]
+	"description": "jev-prompt: a Claude Code mod that grades your prompt draft live with Jev through OpenRouter.",
+	"owner": {
+		"name": "EDantes",
+		"url": "https://github.com/filip-a-9"
+	},
+	"plugins": [
+		{
+			"name": "jev-prompt",
+			"source": "./",
+			"description": "Grades the prompt you are typing against a prompting rubric, live, with Jev through OpenRouter."
+		}
+	]
 }
