@@ -9,7 +9,7 @@ This is a reference mod: a working example of grading prompts live through a
 mod. The grader works. Whether its hints make prompts better has not been
 shown (see [What the evidence says](#what-the-evidence-says)).
 
-While you type, jev-prompt waits for a pause and then shows one line above the prompt box.
+While you type, jev-prompt waits for a pause and then shows one line, the band, above the prompt box.
 
 ```
 jev  bug fix  ·  missing: expected result, the failing command
@@ -32,7 +32,7 @@ The line names the kind of prompt and what it seems to lack. It is advisory only
 /plugin configure jev-prompt@jev-prompt
 ```
 
-Secret options such as the key do not show in `/config`; use `/plugin configure`. With no GitHub SSH key, set `CLAUDE_CODE_PLUGIN_PREFER_HTTPS=1` before adding the marketplace. Update with `claude plugin update jev-prompt@jev-prompt`; auto-update is off for third-party marketplaces.
+Secret options such as the key do not show in `/config`; use `/plugin configure`. Update with `claude plugin update jev-prompt@jev-prompt`; auto-update is off for third-party marketplaces.
 
 ## What leaves your machine
 
@@ -91,7 +91,7 @@ from this repository.
   - A low grade ranks trouble above chance, but only just: AUC 0.60.
   - The check passed by the smallest margin it allows. One prompt more or
     less would change the result.
-- **Trouble detection.** The detector of trouble agreed with hand labels on
+- **Trouble detection.** The trouble detector agreed with hand labels on
   36 of 40 fresh prompts. Almost all of those prompts were smooth, though,
   and it caught 1 of 5 real troubles.
 - **Not shown.** Whether people write better prompts with the hint, or would
@@ -114,10 +114,10 @@ npm --prefix dev run typecheck
 
 The tooling's `package.json` and lockfile live in `dev/`, not the repository root. Claude Code installs a plugin's npm dependencies whenever its root holds both files, and the mod has none at runtime, so installing it downloads nothing. A check in `checks/` keeps it that way.
 
-`npm test` needs the `claude` CLI. `npm run typecheck` needs the engine types in `.claude-plugin/types/`, which are gitignored. No CLI command writes them: Claude Code writes them itself when it loads the mod from a folder you own, so start an interactive session with the mod installed from a local folder. On a fresh clone without them `tsc` fails, so CI skips it. CI runs `npm ci`, Biome, `node --test checks/`, `claude plugin validate . --strict` and `claude plugin test .`, none of which needs credentials.
+The tests need the `claude` CLI. The typecheck needs the engine types in `.claude-plugin/types/`, which are gitignored. No CLI command writes them: Claude Code writes them itself when it loads the mod from a folder you own, so start an interactive session with the mod installed from a local folder. On a fresh clone without them `tsc` fails, so CI skips it. CI installs the tooling, then runs Biome, `node --test checks/`, `claude plugin validate . --strict` and `claude plugin test .`, none of which needs credentials.
 
 The rubric's sha256 test fails on any rewording: rewording the rubric means recalibrating it.
 
 ## License
 
-MIT, see `LICENSE`.
+MIT, see [LICENSE](LICENSE).
