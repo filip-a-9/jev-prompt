@@ -106,13 +106,15 @@ from this repository.
 ## Development
 
 ```
-npm ci
-npm test
-npm run lint
-npm run typecheck
+npm ci --prefix dev
+npm --prefix dev test
+npm --prefix dev run lint
+npm --prefix dev run typecheck
 ```
 
-`npm test` needs the `claude` CLI. `npm run typecheck` needs the engine types in `.claude-plugin/types/`, which are gitignored. No CLI command writes them: Claude Code writes them itself when it loads the mod from a folder you own, so start an interactive session with the mod installed from a local folder. On a fresh clone without them `tsc` fails, so CI skips it. CI runs `npm ci`, `biome check`, `node --test checks/`, `claude plugin validate . --strict` and `claude plugin test .`, none of which needs credentials.
+The tooling's `package.json` and lockfile live in `dev/`, not the repository root. Claude Code installs a plugin's npm dependencies whenever its root holds both files, and the mod has none at runtime, so installing it downloads nothing. A check in `checks/` keeps it that way.
+
+`npm test` needs the `claude` CLI. `npm run typecheck` needs the engine types in `.claude-plugin/types/`, which are gitignored. No CLI command writes them: Claude Code writes them itself when it loads the mod from a folder you own, so start an interactive session with the mod installed from a local folder. On a fresh clone without them `tsc` fails, so CI skips it. CI runs `npm ci`, Biome, `node --test checks/`, `claude plugin validate . --strict` and `claude plugin test .`, none of which needs credentials.
 
 The rubric's sha256 test fails on any rewording: rewording the rubric means recalibrating it.
 

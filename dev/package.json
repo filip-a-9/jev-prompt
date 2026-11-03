@@ -1,0 +1,25 @@
+{
+	"name": "jev-prompt",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"test": "cd .. && claude plugin test . && node --test checks/",
+		"validate": "cd .. && claude plugin validate .",
+		"typecheck": "tsc -p ..",
+		"lint": "biome check ..",
+		"format": "biome format --write .."
+	},
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/filip-a-9/jev-prompt.git"
+	},
+	"engines": {
+		"node": ">=26"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.6.4",
+		"typescript": "7.0.2"
+	},
+	"description": "Dev tooling for the jev-prompt mod. Kept out of the plugin root so installs fetch nothing."
+}

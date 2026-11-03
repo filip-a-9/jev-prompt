@@ -383,8 +383,8 @@ jev-prompt/
   src/jev.ts                   jevCall(): budget gate, fetch, response check
   src/band.tsx                 AbovePrompt render
   types/index.d.ts             PluginState: band value, paused flag
-  checks/                      node --test checks (manifest, README)
-  package.json                 pins, scripts, engines
+  checks/                      node --test checks (manifest, README, install)
+  dev/package.json             dev tooling: pins, scripts, engines
   tests/*.test.ts              claude plugin test
   docs/spec.md                 this file
 ```

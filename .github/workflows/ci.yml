@@ -17,15 +17,18 @@ jobs:
         with:
           node-version: 26
           cache: npm
-      - run: npm ci
-      - run: npx biome check .
+          cache-dependency-path: dev/package-lock.json
+      # Dev tooling lives in dev/: a package.json plus lockfile at the plugin
+      # root would make every user install download it into the plugin cache.
+      - run: npm ci --prefix dev
+      - run: npm --prefix dev run lint
       - run: node --test checks/
       # Pinned to the version this mod was tested against locally. validate and
       # test are engine behaviour: an unpinned CLI could fail CI with no change here.
       - run: npm i -g @anthropic-ai/claude-code@2.1.317
       - run: claude plugin validate . --strict
       - run: claude plugin test .
-      # No `npx tsc -p .` step: the engine writes .claude-plugin/types/ only when
+      # No `npm --prefix dev run typecheck` step: the engine writes .claude-plugin/types/ only when
       # it loads the mod in a session, and neither validate nor test does, so
       # CI cannot produce the types and tsc fails on 'claude-code/testing'.
       # No API key or secret is used anywhere in this workflow.
